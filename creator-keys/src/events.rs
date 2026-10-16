@@ -2974,6 +2974,61 @@ pub fn snapshot_pruned_topics(creator_id: &Address) -> (Symbol, Address) {
 }
 
 // ============================================================================
+// Feature: governance voting weight snapshot contract
+// ============================================================================
+
+/// Event name emitted when a governance voting weight snapshot is taken.
+pub const GOVERNANCE_SNAPSHOT_TAKEN_EVENT_NAME: Symbol = symbol_short!("gov_snap");
+
+/// Stable governance-snapshot-taken event payload.
+///
+/// Event shape:
+/// - topics: `(GOVERNANCE_SNAPSHOT_TAKEN_EVENT_NAME, proposal_id)`
+/// - data: `GovernanceSnapshotTakenEvent`
+///
+/// Emitted automatically when a governance proposal is created, recording the
+/// block height at which all holder balances were captured. Downstream indexers
+/// use `snapshot_ledger` to correlate voting weights with the proposal's
+/// creation block.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GovernanceSnapshotTakenEvent {
+    /// Monotonic governance proposal identifier.
+    pub proposal_id: u32,
+    /// Ledger sequence at which the snapshot was taken.
+    pub snapshot_ledger: u32,
+    /// Number of holder balances recorded in the snapshot.
+    pub total_holders: u32,
+}
+
+/// Shared governance-snapshot-taken event topics tuple.
+pub fn governance_snapshot_taken_topics(proposal_id: u32) -> (Symbol, u32) {
+    (GOVERNANCE_SNAPSHOT_TAKEN_EVENT_NAME, proposal_id)
+}
+
+/// Event name emitted when a governance snapshot is pruned after resolution.
+pub const GOVERNANCE_SNAPSHOT_PRUNED_EVENT_NAME: Symbol = symbol_short!("gov_sprn");
+
+/// Stable governance-snapshot-pruned event payload.
+///
+/// Event shape:
+/// - topics: `(GOVERNANCE_SNAPSHOT_PRUNED_EVENT_NAME, proposal_id)`
+/// - data: `GovernanceSnapshotPrunedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GovernanceSnapshotPrunedEvent {
+    /// Proposal whose snapshot was pruned.
+    pub proposal_id: u32,
+    /// Ledger in which the pruning happened.
+    pub ledger: u32,
+}
+
+/// Shared governance-snapshot-pruned event topics tuple.
+pub fn governance_snapshot_pruned_topics(proposal_id: u32) -> (Symbol, u32) {
+    (GOVERNANCE_SNAPSHOT_PRUNED_EVENT_NAME, proposal_id)
+}
+
+// ============================================================================
 // Feature: batch_buy with per-key slippage — BatchBuyOrderResult event
 // ============================================================================
 

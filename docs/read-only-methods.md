@@ -447,6 +447,21 @@ Returns the trusted-forwarder nonce for `wallet`, which is the `nonce` the walle
 
 ---
 
+## Price alert read methods
+
+### `get_alerts(wallet: Address) → Vec<PriceAlert>`
+
+Returns `wallet`'s active price alerts in registration order. Each `PriceAlert` carries `alert_id`, `wallet`, `key_id`, `direction` (`Above` / `Below`), `target_price` (raw `i128`, same units as the key price) and `created_ledger`.
+
+- Only active alerts are returned. An alert disappears from the result in the same transaction that fires it (`alert_trg`) or cancels it (`alert_cxl`).
+- At most `MAX_ACTIVE_ALERTS_PER_WALLET` (10) entries.
+
+**Edge cases:**
+- Never panics and requires no authorization. A wallet that never registered an alert returns an empty vector.
+- Read-only: references to alerts that have fired are filtered out here and only pruned from storage the next time the wallet calls `register_alert` or `cancel_alert`.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.

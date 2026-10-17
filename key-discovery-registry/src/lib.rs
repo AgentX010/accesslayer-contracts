@@ -224,11 +224,7 @@ impl KeyDiscoveryRegistry {
     }
 
     /// Admin allows `recorder` to report trade volume.
-    pub fn set_recorder(
-        env: Env,
-        recorder: Address,
-        allowed: bool,
-    ) -> Result<(), DiscoveryError> {
+    pub fn set_recorder(env: Env, recorder: Address, allowed: bool) -> Result<(), DiscoveryError> {
         let admin = read_admin(&env)?;
         admin.require_auth();
         env.storage()

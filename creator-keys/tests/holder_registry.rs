@@ -3,7 +3,7 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+    register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::constants::storage;
 use creator_keys::{CREATOR_TTL_LEDGERS, TTL_MIN_EXTENSION_LEDGERS};
@@ -19,7 +19,7 @@ fn buy_one(
     creator: &Address,
     buyer: &Address,
 ) {
-    let quote = client.get_buy_quote(creator).unwrap();
+    let quote = client.get_buy_quote(creator);
     client.buy_key(creator, buyer, &quote.total_amount, &None);
 }
 
@@ -32,7 +32,7 @@ fn registry_ttl(env: &Env, contract_id: &Address, creator: &Address) -> u32 {
 fn records_buyers_once_and_keeps_zero_balance_holders() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_key_price_for_tests(&env, &client, KEY_PRICE);
+    set_pricing_and_fees(&env, &client, KEY_PRICE, 9_000, 1_000);
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
 
@@ -77,7 +77,7 @@ fn registry_reads_and_writes_extend_ttl() {
         CREATOR_TTL_LEDGERS,
         CREATOR_TTL_LEDGERS,
     );
-    set_key_price_for_tests(&env, &client, KEY_PRICE);
+    set_pricing_and_fees(&env, &client, KEY_PRICE, 9_000, 1_000);
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
     buy_one(&client, &creator, &buyer);

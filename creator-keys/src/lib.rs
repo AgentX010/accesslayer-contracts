@@ -18,6 +18,7 @@ pub mod curve_subscriptions_swaps;
 pub mod emergency_pause;
 pub mod events;
 pub mod lp_reward;
+pub mod price_alerts;
 pub mod ratings_royalties_dividends;
 
 pub mod test_feature_impl;
@@ -203,6 +204,15 @@ pub enum ContractError {
     CapCannotIncrease = 105,
     /// The requested holder cap is below the minimum of 100 bps (1% of supply).
     CapTooLow = 106,
+    // --- Price alerts (Issue #1030) ---
+    /// The wallet already holds
+    /// [`price_alerts::MAX_ACTIVE_ALERTS_PER_WALLET`] active price alerts.
+    WalletAlertLimitReached = 107,
+    /// The key already has [`price_alerts::MAX_ACTIVE_ALERTS_PER_KEY`] active
+    /// price alerts.
+    KeyAlertLimitReached = 108,
+    /// No active price alert with the given id belongs to the wallet.
+    AlertNotFound = 109,
 }
 
 /// Errors raised by the staking entrypoints
@@ -5891,6 +5901,7 @@ impl CreatorKeysContract {
         bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        let supply_before = profile.supply;
         assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
         // Enforce per-wallet trade cooldown (issue #974): check timestamp-based
@@ -6334,6 +6345,7 @@ impl CreatorKeysContract {
         }
 
         record_trade_price_snapshot(&env, &creator);
+        price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
         // Extend TTL for creator storage after successful buy
         extend_creator_ttl(&env, &creator);
@@ -6407,6 +6419,7 @@ impl CreatorKeysContract {
         bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        let supply_before = profile.supply;
         assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
         // Enforce per-wallet trade cooldown (issue #974): check timestamp-based
@@ -6813,6 +6826,7 @@ impl CreatorKeysContract {
         }
 
         record_trade_price_snapshot(&env, &creator);
+        price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
         // Update analytics accumulators atomically with the trade.
         accrue_trade_analytics(&env, &creator, &buyer, price)?;
@@ -6856,6 +6870,7 @@ impl CreatorKeysContract {
         assert_position_not_frozen(&env, &creator, &seller)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        let supply_before = profile.supply;
 
         let balance_key = constants::storage::holder_balance_key(&creator, &seller);
         // Missing balance entries are interpreted as zero and rejected consistently.
@@ -7105,6 +7120,7 @@ impl CreatorKeysContract {
         extend_key_ttl_to_full_window(&env, &last_trade_key);
 
         record_trade_price_snapshot(&env, &creator);
+        price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
         // Update analytics accumulators atomically with the trade.
         accrue_trade_analytics(&env, &creator, &seller, price)?;
@@ -9731,6 +9747,7 @@ impl CreatorKeysContract {
 
             assert_position_not_frozen(&env, &buyer, &creator)?;
             let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+            let supply_before = profile.supply;
             assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
             let mut order_price: i128 = 0;
@@ -9881,6 +9898,7 @@ impl CreatorKeysContract {
                     ledger: env.ledger().sequence(),
                 },
             );
+            price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
             total_price_paid = total_price_paid
                 .checked_add(order_price)
@@ -12864,6 +12882,59 @@ impl CreatorKeysContract {
     }
 
     // =========================================================================
+    // #1030 — Price alerts
+    // =========================================================================
+
+    /// Registers a price alert for `wallet` on `key_id` and returns its id.
+    ///
+    /// The alert fires on the first buy or sell that moves the key's spot
+    /// price across `target_price` in `direction`: for
+    /// [`price_alerts::AlertDirection::Above`] when the price goes from below
+    /// the target to at or above it, for
+    /// [`price_alerts::AlertDirection::Below`] when it goes from above the
+    /// target to at or below it. Firing emits
+    /// [`events::PriceAlertTriggeredEvent`] and deactivates the alert for good.
+    /// `wallet` must authorize the call. Emits
+    /// [`events::PriceAlertRegisteredEvent`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    /// - [`ContractError::NotPositiveAmount`] if `target_price <= 0`.
+    /// - [`ContractError::WalletAlertLimitReached`] if `wallet` already holds
+    ///   [`price_alerts::MAX_ACTIVE_ALERTS_PER_WALLET`] active alerts.
+    /// - [`ContractError::KeyAlertLimitReached`] if `key_id` already has
+    ///   [`price_alerts::MAX_ACTIVE_ALERTS_PER_KEY`] active alerts.
+    pub fn register_alert(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        direction: price_alerts::AlertDirection,
+        target_price: i128,
+    ) -> Result<u64, ContractError> {
+        price_alerts::register_alert(&env, &key_id, &wallet, direction, target_price)
+    }
+
+    /// Cancels one of `wallet`'s active price alerts, freeing its slot.
+    /// `wallet` must authorize the call. Emits
+    /// [`events::PriceAlertCancelledEvent`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::AlertNotFound`] if `wallet` has no active alert with
+    ///   `alert_id` (it never existed, belongs to another wallet, or has
+    ///   already fired or been cancelled).
+    pub fn cancel_alert(env: Env, wallet: Address, alert_id: u64) -> Result<(), ContractError> {
+        price_alerts::cancel_alert(&env, &wallet, alert_id)
+    }
+
+    /// Read-only view: `wallet`'s active price alerts, in registration order.
+    /// Alerts that have fired or been cancelled are never returned.
+    pub fn get_alerts(env: Env, wallet: Address) -> Vec<price_alerts::PriceAlert> {
+        price_alerts::get_alerts(&env, &wallet)
+    }
+
+    // =========================================================================
     // #763 — Vesting schedule
     // =========================================================================
 
@@ -14116,6 +14187,7 @@ impl CreatorKeysContract {
 
             assert_position_not_frozen(&env, &creator, &buyer)?;
             let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+            let supply_before = profile.supply;
             assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
             let mut order_price: i128 = 0;
@@ -14196,6 +14268,7 @@ impl CreatorKeysContract {
                     ledger: env.ledger().sequence(),
                 },
             );
+            price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
             total_price_paid = total_price_paid
                 .checked_add(order_price)
@@ -14267,6 +14340,7 @@ impl CreatorKeysContract {
 
             assert_position_not_frozen(&env, &creator, &seller)?;
             let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+            let supply_before = profile.supply;
 
             let mut order_proceeds: i128 = 0;
             let mut i = 0u32;
@@ -14438,6 +14512,7 @@ impl CreatorKeysContract {
                 (events::SELL_EVENT_NAME, creator.clone(), seller.clone()),
                 sell_event_data,
             );
+            price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
             total_proceeds = total_proceeds
                 .checked_add(order_proceeds)
@@ -14551,6 +14626,7 @@ impl CreatorKeysContract {
         for order in orders.iter() {
             let (creator, quantity) = order;
             let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+            let supply_before = profile.supply;
 
             let mut order_proceeds: i128 = 0;
             let mut i = 0u32;
@@ -14658,6 +14734,7 @@ impl CreatorKeysContract {
                 (events::SELL_EVENT_NAME, creator.clone(), seller.clone()),
                 sell_event_data,
             );
+            price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
 
             total_proceeds = total_proceeds
                 .checked_add(order_proceeds)
@@ -14867,6 +14944,7 @@ impl CreatorKeysContract {
         bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)?;
+        let supply_before = profile.supply;
         assert_whitelist_allows_buy(&env, &profile, &caller)?;
 
         let balance_key = constants::storage::holder_balance_key(&key_id, &caller);
@@ -15005,6 +15083,7 @@ impl CreatorKeysContract {
             extend_key_ttl_to_full_window(&env, &last_buy_key);
 
             extend_creator_ttl(&env, &key_id);
+            price_alerts::check_price_alerts(&env, &key_id, supply_before, profile.supply);
         }
 
         let remainder_returned = remaining;

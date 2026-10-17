@@ -38,6 +38,7 @@ pub enum DataKey {
 | `FeeConfig`                    | Global             | `FeeConfig`      | Stores protocol-wide fee split configuration               |
 | `KeyPrice`                     | Global             | `i128`           | Stores the fixed price for all keys across all creators    |
 | `KeyBalance(Address, Address)` | Per-creator-holder | `u32`            | Stores how many keys a holder owns for a specific creator  |
+| `HolderRegistry(Address)`      | Per-creator        | `Vec<Address>`   | Append-only list of wallets that have held keys for a creator |
 | `TreasuryAddress`              | Global             | `Address`        | Protocol treasury address for fee routing                  |
 | `AdminAddress`                 | Global             | `Address`        | Protocol admin address for configuration                   |
 | `ProtocolFeeRecipient`         | Global             | `Address`        | Protocol fee recipient address                             |
@@ -107,6 +108,21 @@ These invariants must hold true after every contract operation:
 - When selling a key, decrement both `profile.supply` and `KeyBalance(creator, seller)`
 - When processing a creator buyback, decrement both `profile.supply` and `KeyBalance(creator, creator)` by the burned amount
 - Never modify supply without updating the corresponding balance
+
+### Holder registry invariants
+
+`HolderRegistry(creator)` is an append-only list of addresses that have received
+keys through purchases, transfers, airdrops, or claimed allocations. Every
+balance-credit path adds the recipient only if they are not already present.
+Selling or transferring all keys out never removes an address. The registry
+uses persistent storage and its TTL is extended to the full creator TTL window
+on every read of an existing entry and every write.
+
+The storage key is additive, so no migration is required for existing state.
+Soroban storage cannot enumerate the full set of historical `KeyBalance`
+holders on upgrade; consequently, the registry tracks holders from their first
+successful balance credit after this version is deployed and does not backfill
+pre-upgrade history.
 
 **Invariant**: For any registered creator, `profile.holder_count == count of non-zero KeyBalance(creator, *)`.
 

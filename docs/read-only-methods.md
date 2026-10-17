@@ -161,6 +161,16 @@ Returns the number of keys `wallet` holds for `creator`.
 
 ---
 
+### `get_holder_registry(key_id: Address) → Vec<Address>`
+
+Returns the append-only list of wallet addresses that have held keys for `key_id`.
+An address remains in the list after its balance reaches zero, and subsequent
+purchases or transfers do not add duplicate entries. Keys without a registry
+return an empty vector. Reads of an existing registry extend its persistent
+storage TTL.
+
+---
+
 ### `get_holder_key_count(creator: Address, holder: Address) → HolderKeyCountView`
 
 Returns a struct view of a holder's key count.

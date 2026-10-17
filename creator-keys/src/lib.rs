@@ -701,6 +701,10 @@ pub mod constants {
             key_balance_key(creator_id, holder)
         }
 
+        pub fn holder_registry(creator_id: &Address) -> DataKey {
+            DataKey::HolderRegistry(creator_id.clone())
+        }
+
         pub fn dividend_accumulator(creator: &Address) -> DataKey {
             DataKey::DividendPerKeyAccumulated(creator.clone())
         }
@@ -1695,6 +1699,8 @@ pub enum DataKey {
     FeeConfig,
     KeyPrice,
     KeyBalance(Address, Address),
+    /// Append-only set of wallets that have held a creator's keys.
+    HolderRegistry(Address),
     TreasuryAddress,
     AdminAddress,
     ProtocolFeeRecipient,
@@ -4195,6 +4201,27 @@ pub fn extend_key_ttl_to_full_window<K: soroban_sdk::IntoVal<Env, soroban_sdk::V
         .extend_ttl(key, CREATOR_TTL_LEDGERS, CREATOR_TTL_LEDGERS);
 }
 
+fn append_holder_to_registry(env: &Env, key_id: &Address, holder: &Address) {
+    let key = constants::storage::holder_registry(key_id);
+    let mut registry = if env.storage().persistent().has(&key) {
+        let registry: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        extend_key_ttl_to_full_window(env, &key);
+        registry
+    } else {
+        Vec::new(env)
+    };
+
+    if !registry.contains(holder) {
+        registry.push_back(holder.clone());
+        env.storage().persistent().set(&key, &registry);
+        extend_key_ttl_to_full_window(env, &key);
+    }
+}
+
 /// Extends the TTL of a persistent storage entry to at least
 /// [`TTL_MIN_EXTENSION_LEDGERS`] (~30 days) from the current ledger.
 ///
@@ -6111,6 +6138,7 @@ impl CreatorKeysContract {
             // Grant the balance entry the full TTL window so long-held positions
             // survive the same horizon as creator state between trades.
             extend_key_ttl_to_full_window(&env, &balance_key);
+            append_holder_to_registry(&env, &creator, &buyer);
 
             // Flash-loan guard (issue #781): record this buy's ledger so sell_key can
             // reject a same-ledger sell of the position just bought.
@@ -6646,6 +6674,7 @@ impl CreatorKeysContract {
         // Grant the balance entry the full TTL window so long-held positions
         // survive the same horizon as creator state between trades.
         extend_key_ttl_to_full_window(&env, &balance_key);
+        append_holder_to_registry(&env, &creator, &buyer);
 
         // SupplyCapReached (#997): fire exactly once, on the trade that fills
         // the configured cap. Uncapped keys (cap 0) never emit it.
@@ -7596,6 +7625,7 @@ impl CreatorKeysContract {
                 .checked_add(entry.amount)
                 .ok_or(ContractError::Overflow)?;
             env.storage().persistent().set(&balance_key, &new_balance);
+            append_holder_to_registry(&env, &creator, &entry.address);
         }
 
         profile.supply = new_supply;
@@ -8092,6 +8122,26 @@ impl CreatorKeysContract {
         let key = constants::storage::holder_balance_key(&creator, &wallet);
         // Read-only callers get `0` for unseen balances to avoid sparse-map lookups failing.
         env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Read-only view: returns every wallet that has ever held keys for `key_id`.
+    ///
+    /// The append-only registry keeps wallets after their balance reaches zero.
+    /// A key with no recorded holders returns an empty vector. Reading an
+    /// existing registry entry extends its persistent-storage TTL.
+    pub fn get_holder_registry(env: Env, key_id: Address) -> Vec<Address> {
+        let key = constants::storage::holder_registry(&key_id);
+        if !env.storage().persistent().has(&key) {
+            return Vec::new(&env);
+        }
+
+        let registry: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
+        extend_key_ttl_to_full_window(&env, &key);
+        registry
     }
 
     /// Read-only view: returns the key balance for a wallet and creator.
@@ -9782,6 +9832,7 @@ impl CreatorKeysContract {
                     .ok_or(ContractError::Overflow)?;
                 env.storage().persistent().set(&balance_key, &new_balance);
                 extend_key_ttl_to_full_window(&env, &balance_key);
+                append_holder_to_registry(&env, &creator, &buyer);
 
                 // Collect protocol trade fee and emit FeeCollected per key.
                 let trade_fee = compute_trade_fee(&env, price)?;
@@ -10892,6 +10943,7 @@ impl CreatorKeysContract {
             .checked_add(locked.amount)
             .ok_or(ContractError::Overflow)?;
         env.storage().persistent().set(&balance_key, &new_balance);
+        append_holder_to_registry(&env, &creator, &creator);
 
         // Update holder count if this is the creator's first key
         if current_balance == 0 {
@@ -11466,6 +11518,7 @@ impl CreatorKeysContract {
             .persistent()
             .set(&to_balance_key, &new_to_balance);
         extend_key_ttl_to_full_window(&env, &to_balance_key);
+        append_holder_to_registry(&env, &creator, &to);
         propagate_flash_loan_guard_ledger(&env, &creator, &from, &to);
 
         // Increment holder count if recipient had zero balance before.
@@ -11593,6 +11646,7 @@ impl CreatorKeysContract {
                 .persistent()
                 .set(&to_balance_key, &new_to_balance);
             extend_key_ttl_to_full_window(&env, &to_balance_key);
+            append_holder_to_registry(&env, &creator, &to);
             propagate_flash_loan_guard_ledger(&env, &creator, &from, &to);
 
             // Increment holder count when the recipient had zero balance before.
@@ -12980,6 +13034,7 @@ impl CreatorKeysContract {
             .checked_add(claimable)
             .ok_or(ContractError::Overflow)?;
         env.storage().persistent().set(&balance_key, &new_balance);
+        append_holder_to_registry(&env, &creator, &beneficiary);
 
         // Update holder count if first keys
         if current_balance == 0 {
@@ -13071,6 +13126,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
         env.storage().persistent().set(&balance_key, &new_balance);
         extend_key_ttl_to_full_window(&env, &balance_key);
+        append_holder_to_registry(&env, &creator, &beneficiary);
 
         if current_balance == 0 {
             let mut profile = read_registered_creator_profile(&env, &creator)?;
@@ -14175,6 +14231,7 @@ impl CreatorKeysContract {
                     .ok_or(ContractError::Overflow)?;
                 env.storage().persistent().set(&balance_key, &new_balance);
                 extend_key_ttl_to_full_window(&env, &balance_key);
+                append_holder_to_registry(&env, &creator, &buyer);
 
                 i += 1;
             }
@@ -14997,6 +15054,7 @@ impl CreatorKeysContract {
                 .persistent()
                 .set(&balance_key, &current_balance);
             extend_key_ttl_to_full_window(&env, &balance_key);
+            append_holder_to_registry(&env, &key_id, &caller);
 
             let last_buy_key = constants::storage::last_buy_timestamp(&key_id, &caller);
             env.storage()
@@ -16858,6 +16916,7 @@ impl CreatorKeysContract {
             .set(&to_balance_key, &new_to_balance);
         extend_key_ttl_to_full_window(&env, &from_balance_key);
         extend_key_ttl_to_full_window(&env, &to_balance_key);
+        append_holder_to_registry(&env, &key_id, &to);
         propagate_flash_loan_guard_ledger(&env, &key_id, &from, &to);
 
         // The two adjustments below are mutually exclusive: `amount > 0` and

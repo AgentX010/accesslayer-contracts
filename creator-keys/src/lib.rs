@@ -218,6 +218,7 @@ pub enum ContractError {
 }
 
 impl ContractError {
+    #[allow(non_upper_case_globals)]
     pub const AlreadyInitialised: Self = Self::AlreadyInitialized;
 }
 

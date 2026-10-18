@@ -46,7 +46,10 @@ fn test_restoring_serves_reads_gates_buys_and_restores_state() {
     // Archive the creator, then transition the manifest into RESTORING.
     client.archive_creator(&creator);
     client.begin_restore(&creator);
-    assert_eq!(client.get_creator_lifecycle(&creator), CreatorLifecycle::Restoring);
+    assert_eq!(
+        client.get_creator_lifecycle(&creator),
+        CreatorLifecycle::Restoring
+    );
 
     // Reads keep returning the current values during the window.
     assert_eq!(client.get_balance(&creator, &holder), balance_before);
@@ -60,7 +63,10 @@ fn test_restoring_serves_reads_gates_buys_and_restores_state() {
 
     // Restoration finishes and the creator is active again.
     client.complete_restore(&creator);
-    assert_eq!(client.get_creator_lifecycle(&creator), CreatorLifecycle::Active);
+    assert_eq!(
+        client.get_creator_lifecycle(&creator),
+        CreatorLifecycle::Active
+    );
 
     // The restored state matches the pre-archive values.
     assert_eq!(client.get_total_key_supply(&creator), supply_before);

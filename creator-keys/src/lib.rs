@@ -19,7 +19,9 @@ pub mod emergency_pause;
 pub mod events;
 pub mod lp_reward;
 pub mod price_alerts;
+pub mod proxy;
 pub mod ratings_royalties_dividends;
+pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 
 pub mod test_feature_impl;
 pub mod test_new_features;
@@ -20647,3 +20649,6 @@ mod test_issue_998;
 
 #[cfg(test)]
 mod test_issue_1000;
+
+#[cfg(test)]
+mod test_proxy;

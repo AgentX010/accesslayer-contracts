@@ -2,7 +2,8 @@
 
 use crate::{
     lp_reward::{
-        LPAdded, LPRewardClaimed, LpRewardError, LP_ADDED_EVENT_NAME, LP_CLAIMED_EVENT_NAME,
+        LiquidityAdded, LPAdded, RewardsClaimed, LPRewardClaimed, LpRewardError,
+        LIQUIDITY_ADDED_EVENT_NAME, LP_ADDED_EVENT_NAME, REWARDS_CLAIMED_EVENT_NAME, LP_CLAIMED_EVENT_NAME,
     },
     CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
 };
@@ -97,20 +98,20 @@ fn test_creator_keys_accrue_trading_fees_and_claim_rewards() {
     // Accrue 400 fee from trading volume
     client.accrue_lp_trading_fee(&creator, &400);
 
-    // 25% to p1 (100), 75% to p2 (300)
-    assert_eq!(client.get_lp_position(&lp1).pending_rewards, 100);
-    assert_eq!(client.get_lp_position(&lp2).pending_rewards, 300);
+    // 20% of 400 = 80 distributed; 25% to p1 (20), 75% to p2 (60)
+    assert_eq!(client.get_lp_position(&lp1).pending_rewards, 20);
+    assert_eq!(client.get_lp_position(&lp2).pending_rewards, 60);
 
     // P1 claims rewards
     let claimed = client.claim_lp_rewards(&lp1);
-    assert_eq!(claimed, 100);
+    assert_eq!(claimed, 20);
 
     // Verify LPRewardClaimed event emitted immediately after claim
     let claim_events: Vec<LPRewardClaimed> = get_events(&env, LP_CLAIMED_EVENT_NAME);
     assert_eq!(claim_events.len(), 1);
     let ev = claim_events.get(0).unwrap();
     assert_eq!(ev.lp_id, lp1);
-    assert_eq!(ev.amount, 100);
+    assert_eq!(ev.amount, 20);
     assert_eq!(ev.provider, p1);
 
     // After claim, pending is 0
@@ -126,9 +127,9 @@ fn test_creator_keys_remove_liquidity_returns_principal_plus_rewards() {
     let lp = client.add_liquidity(&creator, &provider, &10_000);
     client.accrue_lp_trading_fee(&creator, &1_500);
 
-    // Total return = 10,000 + 1,500 = 11,500
+    // Total return = 10,000 + (20% of 1500) = 10,000 + 300 = 10,300
     let total = client.remove_liquidity(&lp);
-    assert_eq!(total, 11_500);
+    assert_eq!(total, 10_300);
     assert_eq!(client.get_lp_total_liquidity(&creator), 0);
 
     let pos = client.get_lp_position(&lp);
@@ -168,4 +169,20 @@ fn test_creator_keys_validation_errors() {
         client.try_remove_liquidity(&999),
         Err(Ok(LpRewardError::PositionNotFound))
     );
+}
+
+#[test]
+fn test_creator_keys_liquidity_added_event_emitted() {
+    let (env, client, _admin, creator) = setup_test();
+    let provider = Address::generate(&env);
+
+    let lp_id = client.add_liquidity(&creator, &provider, &5_000);
+    let events: Vec<crate::lp_reward::LiquidityAdded> = get_events(&env, crate::lp_reward::LIQUIDITY_ADDED_EVENT_NAME);
+
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.lp_id, lp_id);
+    assert_eq!(event.key_id, creator);
+    assert_eq!(event.provider, provider);
+    assert_eq!(event.amount, 5_000);
 }

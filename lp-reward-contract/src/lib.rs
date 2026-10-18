@@ -10,9 +10,11 @@ mod test;
 pub const SCALE: i128 = 1_000_000_000_000; // 1e12 for fixed-point fee accumulator
 pub const BPS_SCALE: i128 = 10_000;
 
-pub const LP_ADDED_EVENT_NAME: Symbol = symbol_short!("LPAdded");
-pub const LP_CLAIMED_EVENT_NAME: Symbol = symbol_short!("lp_claim");
+pub const LIQUIDITY_ADDED_EVENT_NAME: Symbol = symbol_short!("liq_add");
+pub const REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("rew_clm");
 pub const LP_REMOVED_EVENT_NAME: Symbol = symbol_short!("lp_rem");
+pub const LP_ADDED_EVENT_NAME: Symbol = LIQUIDITY_ADDED_EVENT_NAME;
+pub const LP_CLAIMED_EVENT_NAME: Symbol = REWARDS_CLAIMED_EVENT_NAME;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -62,12 +64,31 @@ pub struct LpPool {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
+pub struct LiquidityAdded {
+    pub lp_id: u64,
+    pub key_id: Address,
+    pub provider: Address,
+    pub amount: i128,
+    pub share: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
 pub struct LPAdded {
     pub lp_id: u64,
     pub key_id: Address,
     pub provider: Address,
     pub amount: i128,
     pub share: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RewardsClaimed {
+    pub lp_id: u64,
+    pub provider: Address,
+    pub key_id: Address,
+    pub amount: i128,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -209,6 +230,16 @@ impl LpRewardContract {
 
         // Emit LPAdded event
         env.events().publish(
+            (LIQUIDITY_ADDED_EVENT_NAME, key_id.clone(), provider.clone()),
+            LiquidityAdded {
+                lp_id,
+                key_id: key_id.clone(),
+                provider: provider.clone(),
+                amount,
+                share: share_bps,
+            },
+        );
+        env.events().publish(
             (LP_ADDED_EVENT_NAME, key_id.clone(), provider.clone()),
             LPAdded {
                 lp_id,
@@ -247,7 +278,12 @@ impl LpRewardContract {
             return Err(LpRewardError::ZeroLiquidityPool);
         }
 
-        let delta = (fee_amount
+        // Distribute 20% of swap fees pro-rata to LPs
+        let reward_amount = (fee_amount
+            .checked_mul(2000)
+            .ok_or(LpRewardError::ArithmeticOverflow)?)
+            / BPS_SCALE;
+        let delta = (reward_amount
             .checked_mul(SCALE)
             .ok_or(LpRewardError::ArithmeticOverflow)?)
             / pool.total_liquidity;
@@ -258,7 +294,7 @@ impl LpRewardContract {
             .ok_or(LpRewardError::ArithmeticOverflow)?;
         pool.total_rewards_collected = pool
             .total_rewards_collected
-            .checked_add(fee_amount)
+            .checked_add(reward_amount)
             .ok_or(LpRewardError::ArithmeticOverflow)?;
 
         write_pool(&env, &pool);
@@ -306,6 +342,19 @@ impl LpRewardContract {
         write_pool(&env, &pool);
 
         if pending > 0 {
+            env.events().publish(
+                (
+                    REWARDS_CLAIMED_EVENT_NAME,
+                    position.key_id.clone(),
+                    position.provider.clone(),
+                ),
+                RewardsClaimed {
+                    lp_id,
+                    provider: position.provider.clone(),
+                    key_id: position.key_id.clone(),
+                    amount: pending,
+                },
+            );
             env.events().publish(
                 (
                     LP_CLAIMED_EVENT_NAME,
@@ -382,6 +431,19 @@ impl LpRewardContract {
 
         env.events().publish(
             (
+                REWARDS_CLAIMED_EVENT_NAME,
+                position.key_id.clone(),
+                position.provider.clone(),
+            ),
+            RewardsClaimed {
+                lp_id,
+                provider: position.provider.clone(),
+                key_id: position.key_id.clone(),
+                amount: pending,
+            },
+        );
+        env.events().publish(
+            (
                 LP_CLAIMED_EVENT_NAME,
                 position.key_id.clone(),
                 position.provider.clone(),
@@ -445,6 +507,26 @@ impl LpRewardContract {
     /// Read-only view of total collected trading rewards for a key pair.
     pub fn get_pool_rewards(env: Env, key_id: Address) -> i128 {
         read_pool(&env, &key_id).total_rewards_collected
+    }
+
+    /// Returns pending rewards for a given LP position.
+    pub fn get_lp_rewards(env: Env, lp_id: u64) -> Result<i128, LpRewardError> {
+        let position = read_position(&env, lp_id)?;
+        if position.is_closed {
+            return Ok(0);
+        }
+
+        let pool = read_pool(&env, &position.key_id);
+        let accumulated = (position
+            .contribution
+            .checked_mul(pool.acc_reward_per_share)
+            .unwrap_or(0))
+            / SCALE;
+        let pending = position
+            .accumulated_rewards
+            .saturating_add(accumulated.saturating_sub(position.reward_debt));
+
+        Ok(pending)
     }
 
     /// Total LP positions ever created.

@@ -401,7 +401,9 @@ impl LaunchAuctionContract {
                     .persistent()
                     .get::<DataKey, u32>(&alloc_key)
                     .unwrap_or(0);
-                env.storage().persistent().set(&alloc_key, &(prior_alloc + 1));
+                env.storage()
+                    .persistent()
+                    .set(&alloc_key, &(prior_alloc + 1));
                 extend_ttl(&env, &alloc_key);
 
                 total_raised += clearing_price;
@@ -418,7 +420,9 @@ impl LaunchAuctionContract {
                 } else {
                     0
                 };
-                env.storage().persistent().set(&escrow_key, &remaining_escrow);
+                env.storage()
+                    .persistent()
+                    .set(&escrow_key, &remaining_escrow);
                 extend_ttl(&env, &escrow_key);
 
                 if excess > 0 {
@@ -436,7 +440,9 @@ impl LaunchAuctionContract {
                 } else {
                     0
                 };
-                env.storage().persistent().set(&escrow_key, &remaining_escrow);
+                env.storage()
+                    .persistent()
+                    .set(&escrow_key, &remaining_escrow);
                 extend_ttl(&env, &escrow_key);
 
                 refunded_count += 1;
@@ -480,7 +486,9 @@ impl LaunchAuctionContract {
 
     /// Returns auction details by ID.
     pub fn get_auction(env: Env, auction_id: u32) -> Option<Auction> {
-        env.storage().persistent().get(&DataKey::Auction(auction_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Auction(auction_id))
     }
 
     /// Returns all bids submitted for an auction.

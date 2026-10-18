@@ -85,7 +85,9 @@ fn test_create_auction_succeeds_and_emits_event() {
     assert_eq!(event.duration_seconds, 3600);
 
     // Check stored state
-    let auction = client.get_auction(&auction_id).expect("auction should exist");
+    let auction = client
+        .get_auction(&auction_id)
+        .expect("auction should exist");
     assert_eq!(auction.id, 1);
     assert_eq!(auction.key_id, creator);
     assert_eq!(auction.supply, 10);

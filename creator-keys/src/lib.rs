@@ -5870,7 +5870,15 @@ impl CreatorKeysContract {
         max_price: Option<i128>,
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
-        Self::buy_key_with_ref_and_slip(env, creator, buyer, payment, max_price, None, max_slippage_bps)
+        Self::buy_key_with_ref_and_slip(
+            env,
+            creator,
+            buyer,
+            payment,
+            max_price,
+            None,
+            max_slippage_bps,
+        )
     }
 
     /// Purchases multiple keys in a single transaction, subject to the creator's
@@ -5899,7 +5907,16 @@ impl CreatorKeysContract {
         max_price: Option<i128>,
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
-        Self::buy_keys_with_ref_and_slip(env, creator, buyer, quantity, payment, max_price, None, max_slippage_bps)
+        Self::buy_keys_with_ref_and_slip(
+            env,
+            creator,
+            buyer,
+            quantity,
+            payment,
+            max_price,
+            None,
+            max_slippage_bps,
+        )
     }
 
     pub fn buy_keys_with_referrer(
@@ -5911,7 +5928,9 @@ impl CreatorKeysContract {
         max_price: Option<i128>,
         referrer: Option<Address>,
     ) -> Result<u32, ContractError> {
-        Self::buy_keys_with_ref_and_slip(env, creator, buyer, quantity, payment, max_price, referrer, None)
+        Self::buy_keys_with_ref_and_slip(
+            env, creator, buyer, quantity, payment, max_price, referrer, None,
+        )
     }
 
     pub fn buy_keys_with_ref_and_slip(
@@ -6436,7 +6455,15 @@ impl CreatorKeysContract {
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
-        Self::execute_buy(env, creator, buyer, payment, max_price, referrer, max_slippage_bps)
+        Self::execute_buy(
+            env,
+            creator,
+            buyer,
+            payment,
+            max_price,
+            referrer,
+            max_slippage_bps,
+        )
     }
 
     /// Executes a single-key purchase for `buyer` without checking the

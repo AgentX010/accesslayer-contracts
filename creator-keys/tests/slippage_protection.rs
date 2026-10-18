@@ -225,7 +225,7 @@ fn test_buy_slippage_boundary_exact_cost_and_exceeded_by_one_stroop() {
 #[test]
 fn test_buy_max_slippage_bps_exceeded_reverts() {
     let env = test_env_with_auths();
-    let (client, contract_id) = register_creator_keys(&env);
+    let (client, _contract_id) = register_creator_keys(&env);
     let admin = contract_test_env::set_pricing_and_fees(&env, &client, KEY_PRICE, 9000, 1000);
     let creator = register_test_creator(&env, &client, "alice_slope");
     client.set_curve_slope(&admin, &100);

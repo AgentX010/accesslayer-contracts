@@ -5933,6 +5933,7 @@ impl CreatorKeysContract {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn buy_keys_with_ref_and_slip(
         env: Env,
         creator: Address,
@@ -6099,6 +6100,29 @@ impl CreatorKeysContract {
 
                 pre_price
             };
+
+            if let Some(max_bps) = max_slippage_bps {
+                if max_bps > 0 {
+                    let reference_price = if in_auction {
+                        key_price
+                    } else if profile.supply == 0 {
+                        base_price
+                    } else {
+                        compute_bonding_curve_price(&env, &creator, base_price, profile.supply - 1)?
+                    };
+                    let net_for_slippage = {
+                        let trade_fee = compute_trade_fee(&env, key_price)?;
+                        fee::checked_sub_i128(key_price, trade_fee).unwrap_or(key_price)
+                    };
+                    assert_max_slippage_bps(
+                        &env,
+                        &creator,
+                        reference_price,
+                        net_for_slippage,
+                        Some(max_bps),
+                    )?;
+                }
+            }
 
             // Check max supply cap if set
             if let Some(max_supply) = env
@@ -6445,6 +6469,7 @@ impl CreatorKeysContract {
         Self::buy_key_with_ref_and_slip(env, creator, buyer, payment, max_price, referrer, None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn buy_key_with_ref_and_slip(
         env: Env,
         creator: Address,

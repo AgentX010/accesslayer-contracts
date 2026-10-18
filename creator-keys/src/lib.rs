@@ -4702,16 +4702,22 @@ fn assert_caller_approved(env: &Env, caller: &Address) -> Result<(), ContractErr
 /// Reads the recorded price observation history for a creator.
 ///
 /// Bumps the TTL of the ring-buffer entry on every read so actively polled
-/// snapshot history never expires (`extend_ttl` is a no-op for absent keys).
+/// snapshot history never expires. `extend_ttl` traps on a missing key, so the
+/// bump is skipped when no history has been recorded yet; the read stays
+/// panic-free for every storage state.
 fn read_price_history(env: &Env, creator: &Address) -> Vec<PriceObservation> {
     let history_key = constants::storage::price_history(creator);
-    let history: Vec<PriceObservation> = env
+    match env
         .storage()
         .persistent()
-        .get(&history_key)
-        .unwrap_or_else(|| Vec::new(env));
-    bump_persistent_ttl(env, &history_key);
-    history
+        .get::<DataKey, Vec<PriceObservation>>(&history_key)
+    {
+        Some(history) => {
+            bump_persistent_ttl(env, &history_key);
+            history
+        }
+        None => Vec::new(env),
+    }
 }
 
 /// Records a price observation for `creator` at the current ledger.

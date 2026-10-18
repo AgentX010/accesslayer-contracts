@@ -63,8 +63,14 @@ intentionally unassigned.
 | `108` | `KeyAlertLimitReached` | The key already has the maximum number of active price alerts | Triggered in [`price_alerts::register_alert`](../creator-keys/src/price_alerts.rs) when the key has `MAX_ACTIVE_ALERTS_PER_KEY` (16) active alerts from any wallets. |
 | `109` | `AlertNotFound` | No active price alert with that id belongs to the wallet | Triggered in [`price_alerts::cancel_alert`](../creator-keys/src/price_alerts.rs) when the id never existed, belongs to another wallet, or the alert has already fired or been cancelled. |
 | `110` | `AlreadyInitialized` | Protocol configuration has already been initialized | Triggered in [`initialize`](../creator-keys/src/lib.rs) when attempting to re-initialize an already-initialized contract. |
+| `111` | `BundleSizeExceeded` | A bundle contains too many items | Triggered by `bundle::buy_bundle` when the number of items exceeds `MAX_BUNDLE_ITEMS`. |
+| `112` | `BundleItemUnfilled` | A bundle item could not be filled completely | Triggered by `bundle::buy_bundle` when a requested item is partially filled. |
+| `113` | `StateRestoring` | The creator's archived state is being restored | Triggered when buying keys for a creator in the restoring lifecycle state. |
+| `114` | `InvalidLifecycleState` | The creator is in the wrong lifecycle state for the requested archive operation | Triggered by archive/restore lifecycle entrypoints when the creator state is incompatible. |
+| `115` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
+| `116` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
 
-**Backward compatibility for 107-110**: these codes
+**Backward compatibility for 107-116**: these codes
 are appended after the previously highest code (`106`, `CapTooLow`). No existing
 variant was renumbered, reordered, or reused. `register_alert` reports an
 unregistered key with `NotRegistered` (2) and a non-positive target price with

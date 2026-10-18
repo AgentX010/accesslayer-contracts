@@ -15,7 +15,7 @@
 mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, test_env_with_auths};
-use creator_keys::{ContractError, CreatorKeysContractClient};
+use creator_keys::ContractError;
 use soroban_sdk::{testutils::Address as _, Address};
 
 #[test]

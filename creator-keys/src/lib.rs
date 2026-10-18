@@ -17890,6 +17890,28 @@ impl CreatorKeysContract {
         lp_reward::get_pool_rewards(&env, key_id)
     }
 
+    /// Sets the reward rate (in basis points) for `key_id`'s LP pool.
+    ///
+    /// Restricted to the creator that owns `key_id`. Rate changes only affect
+    /// future fee accruals — existing positions are not retroactively adjusted.
+    /// `new_rate_bps` must be between [`lp_reward::MIN_REWARD_RATE_BPS`] and
+    /// [`lp_reward::MAX_REWARD_RATE_BPS`] inclusive.
+    pub fn set_reward_rate(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        new_rate_bps: u32,
+    ) -> Result<(), lp_reward::LpRewardError> {
+        read_registered_creator_profile(&env, &key_id)
+            .map_err(|_| lp_reward::LpRewardError::Unauthorized)?;
+        lp_reward::set_reward_rate(&env, key_id, caller, new_rate_bps)
+    }
+
+    /// Returns the current reward rate and the timestamp at which it was last set for `key_id`.
+    pub fn get_reward_rate(env: Env, key_id: Address) -> lp_reward::RewardRate {
+        lp_reward::get_reward_rate(&env, key_id)
+    }
+
     /// Sets the trusted forwarder address that may submit buys on behalf of users.
     ///
     /// Only callable by the protocol admin. The forwarder is allowed to call

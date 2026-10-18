@@ -9532,11 +9532,7 @@ impl CreatorKeysContract {
         read_registered_creator_profile(&env, &key_id)?;
 
         let count_key = AnnouncementKey::Count(key_id.clone());
-        let announcement_id: u32 = env
-            .storage()
-            .persistent()
-            .get(&count_key)
-            .unwrap_or(0);
+        let announcement_id: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
         let next_count = announcement_id
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;

@@ -1,6 +1,6 @@
 use crate::{
-    events, AnnouncementCategory, ContractError, CreatorKeysContract,
-    CreatorKeysContractClient, RegisterCreatorParams, MAX_ANNOUNCEMENT_PAGE_SIZE,
+    events, AnnouncementCategory, ContractError, CreatorKeysContract, CreatorKeysContractClient,
+    RegisterCreatorParams, MAX_ANNOUNCEMENT_PAGE_SIZE,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
@@ -42,8 +42,7 @@ fn announcements_store_all_categories_and_emit_metadata() {
     for (index, category) in categories.iter().enumerate() {
         let title = String::from_str(&env, "Creator update");
         let content_hash = String::from_str(&env, "bafy-content");
-        let id = client
-            .post_announcement(&creator, &title, &content_hash, category);
+        let id = client.post_announcement(&creator, &title, &content_hash, category);
         assert_eq!(id, index as u32);
 
         let events = env.events().all();
@@ -97,8 +96,14 @@ fn announcement_pages_are_ordered_and_bounded() {
     assert_eq!(first_page.get(0).unwrap().announcement_id, 0);
     assert_eq!(first_page.get(1).unwrap().announcement_id, 1);
     assert_eq!(second_page.get(0).unwrap().announcement_id, 2);
-    assert!(client.get_announcements(&creator, &3, &1).unwrap().is_empty());
-    assert!(client.get_announcements(&creator, &0, &0).unwrap().is_empty());
+    assert!(client
+        .get_announcements(&creator, &3, &1)
+        .unwrap()
+        .is_empty());
+    assert!(client
+        .get_announcements(&creator, &0, &0)
+        .unwrap()
+        .is_empty());
     assert_eq!(
         client.try_get_announcements(&creator, &0, &(MAX_ANNOUNCEMENT_PAGE_SIZE + 1)),
         Err(Ok(ContractError::AnnouncementPageSizeExceeded))

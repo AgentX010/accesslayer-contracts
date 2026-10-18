@@ -4700,11 +4700,18 @@ fn assert_caller_approved(env: &Env, caller: &Address) -> Result<(), ContractErr
 }
 
 /// Reads the recorded price observation history for a creator.
+///
+/// Bumps the TTL of the ring-buffer entry on every read so actively polled
+/// snapshot history never expires (`extend_ttl` is a no-op for absent keys).
 fn read_price_history(env: &Env, creator: &Address) -> Vec<PriceObservation> {
-    env.storage()
+    let history_key = constants::storage::price_history(creator);
+    let history: Vec<PriceObservation> = env
+        .storage()
         .persistent()
-        .get::<DataKey, Vec<PriceObservation>>(&constants::storage::price_history(creator))
-        .unwrap_or_else(|| Vec::new(env))
+        .get(&history_key)
+        .unwrap_or_else(|| Vec::new(env));
+    bump_persistent_ttl(env, &history_key);
+    history
 }
 
 /// Records a price observation for `creator` at the current ledger.
@@ -4851,6 +4858,52 @@ fn compute_twap_price(
         return current_price;
     }
     total_weighted / i128::from(total_ledgers)
+}
+
+/// Returns the current bonding-curve spot price for `creator`.
+///
+/// Falls back to the base key price when the creator is not registered, the key
+/// price is unset, or the curve computation fails, so callers never panic.
+fn current_spot_price(env: &Env, creator: &Address) -> i128 {
+    let base_price: i128 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::KEY_PRICE)
+        .unwrap_or(0);
+    match read_registered_creator_profile(env, creator) {
+        Ok(profile) => {
+            compute_bonding_curve_price(env, creator, base_price, profile.supply)
+                .unwrap_or(base_price)
+        }
+        Err(_) => base_price,
+    }
+}
+
+/// Computes the simple average of every price snapshot within the last
+/// `window_ledgers` ledgers, or `None` when fewer than two snapshots fall inside
+/// the window.
+///
+/// The ring buffer is read through [`read_price_history`], which bumps the
+/// entry's TTL. Arithmetic is saturating so the function never panics,
+/// regardless of snapshot count or price magnitude.
+fn compute_simple_twap(env: &Env, creator: &Address, window_ledgers: u32) -> Option<i128> {
+    let window_start = env.ledger().sequence().saturating_sub(window_ledgers);
+    let history = read_price_history(env, creator);
+
+    let mut sum: i128 = 0;
+    let mut count: u32 = 0;
+    for observation in history.iter() {
+        if observation.ledger >= window_start {
+            sum = sum.saturating_add(observation.price);
+            count = count.saturating_add(1);
+        }
+    }
+
+    if count < 2 {
+        None
+    } else {
+        Some(sum / i128::from(count))
+    }
 }
 
 /// Publishes the [`events::PRICE_QUERIED_EVENT_NAME`] event for an oracle read.
@@ -16184,6 +16237,22 @@ impl CreatorKeysContract {
             .persistent()
             .get(&constants::storage::PRICE_RETENTION_LEDGERS)
             .unwrap_or(0)
+    }
+
+    /// Read-only view: the average price for `creator`'s key over the last
+    /// `window_ledgers` ledgers (issue #802).
+    ///
+    /// The TWAP is the simple arithmetic mean of every price snapshot recorded
+    /// by a buy or sell whose ledger falls inside the window. When fewer than
+    /// two snapshots fall inside the window the current bonding-curve spot price
+    /// is returned instead. This view never panics regardless of how many
+    /// snapshots exist: missing pricing state simply falls back to the base key
+    /// price, and the ring buffer's TTL is bumped on every read.
+    pub fn get_twap(env: Env, creator: Address, window_ledgers: u32) -> i128 {
+        match compute_simple_twap(&env, &creator, window_ledgers) {
+            Some(twap) => twap,
+            None => current_spot_price(&env, &creator),
+        }
     }
 
     /// Read-only view: number of price snapshots currently stored for `creator`.

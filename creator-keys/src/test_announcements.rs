@@ -61,7 +61,7 @@ fn announcements_store_all_categories_and_emit_metadata() {
         assert_eq!(payload.posted_at, 1_234_567);
     }
 
-    let all = client.get_announcements(&creator, &0, &4).unwrap();
+    let all = client.get_announcements(&creator, &0, &4);
     assert_eq!(all.len(), 4);
     for (index, category) in categories.iter().enumerate() {
         let announcement = all.get(index as u32).unwrap();
@@ -89,8 +89,8 @@ fn announcement_pages_are_ordered_and_bounded() {
         );
     }
 
-    let first_page = client.get_announcements(&creator, &0, &2).unwrap();
-    let second_page = client.get_announcements(&creator, &2, &2).unwrap();
+    let first_page = client.get_announcements(&creator, &0, &2);
+    let second_page = client.get_announcements(&creator, &2, &2);
     assert_eq!(first_page.len(), 2);
     assert_eq!(second_page.len(), 1);
     assert_eq!(first_page.get(0).unwrap().announcement_id, 0);
@@ -98,11 +98,9 @@ fn announcement_pages_are_ordered_and_bounded() {
     assert_eq!(second_page.get(0).unwrap().announcement_id, 2);
     assert!(client
         .get_announcements(&creator, &3, &1)
-        .unwrap()
         .is_empty());
     assert!(client
         .get_announcements(&creator, &0, &0)
-        .unwrap()
         .is_empty());
     assert_eq!(
         client.try_get_announcements(&creator, &0, &(MAX_ANNOUNCEMENT_PAGE_SIZE + 1)),

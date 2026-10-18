@@ -3,9 +3,60 @@
 pub mod quote_view_errors;
 pub mod vesting;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
-    String, Vec,
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
+    contract, contractclient, contracterror, contractimpl, contracttype,
+    xdr::ToXdr,
+    Address, Bytes, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
 };
+
+#[contractclient(name = "CircuitBreakerClient")]
+pub trait CircuitBreaker {
+    fn is_suspended(env: Env, key_id: Address) -> bool;
+    fn record_swap(
+        env: Env,
+        caller: Address,
+        key_id: Address,
+        amount: i128,
+        price_impact_bps: u32,
+    ) -> Result<bool, CircuitBreakerRemoteError>;
+}
+
+fn record_breaker_swap(
+    env: &Env,
+    breaker: &Address,
+    key_id: &Address,
+    amount: i128,
+    price_impact_bps: u32,
+) {
+    let caller = env.current_contract_address();
+    let args: Vec<Val> = (caller.clone(), key_id.clone(), amount, price_impact_bps).into_val(env);
+    let invocation = InvokerContractAuthEntry::Contract(SubContractInvocation {
+        context: ContractContext {
+            contract: breaker.clone(),
+            fn_name: Symbol::new(env, "record_swap"),
+            args,
+        },
+        sub_invocations: Vec::new(env),
+    });
+    env.authorize_as_current_contract(Vec::from_array(env, [invocation]));
+    let _ = CircuitBreakerClient::new(env, breaker).record_swap(
+        &caller,
+        key_id,
+        &amount,
+        &price_impact_bps,
+    );
+}
+
+#[contracterror]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum CircuitBreakerRemoteError {
+    AlreadyInitialized = 1,
+    Unauthorized = 2,
+    InvalidThreshold = 3,
+    CircuitBreakerActive = 4,
+    ArithmeticOverflow = 5,
+}
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
@@ -228,6 +279,8 @@ pub enum ContractError {
     StateRestoring = 113,
     /// The creator is not in the lifecycle state the archive operation requires (#709).
     InvalidLifecycleState = 114,
+    /// Trading for the creator key is suspended by its circuit breaker.
+    CircuitBreakerActive = 115,
 }
 
 impl ContractError {
@@ -1812,6 +1865,7 @@ pub enum DataKey {
     HolderRegistry(Address),
     TreasuryAddress,
     AdminAddress,
+    CircuitBreakerAddress,
     ProtocolFeeRecipient,
     ProtocolFeeRecipientBalance,
     CreatorFeeBalance(Address),
@@ -10791,6 +10845,34 @@ impl CreatorKeysContract {
         }
     }
 
+    /// Configures or disables the external circuit breaker used by `swap`.
+    pub fn set_circuit_breaker(
+        env: Env,
+        admin: Address,
+        breaker: Option<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if let Some(address) = breaker.as_ref() {
+            validate_non_zero_address(&env, address)?;
+            env.storage()
+                .persistent()
+                .set(&DataKey::CircuitBreakerAddress, address);
+            extend_key_ttl_to_full_window(&env, &DataKey::CircuitBreakerAddress);
+        } else {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::CircuitBreakerAddress);
+        }
+        Ok(())
+    }
+
+    pub fn get_circuit_breaker(env: Env) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CircuitBreakerAddress)
+    }
+
     /// Sets the protocol admin address.
     ///
     /// Only callable by an authorized admin. Stores the admin address used
@@ -11287,6 +11369,16 @@ impl CreatorKeysContract {
             return Err(ContractError::NotPositiveAmount);
         }
 
+        let breaker: Option<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CircuitBreakerAddress);
+        if let Some(address) = breaker.as_ref() {
+            if CircuitBreakerClient::new(&env, address).is_suspended(&creator) {
+                return Err(ContractError::CircuitBreakerActive);
+            }
+        }
+
         // Record the pre-swap price and compute the post-swap price before any
         // state is committed, so a breach reverts without side effects.
         let (_, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
@@ -11326,6 +11418,9 @@ impl CreatorKeysContract {
                 if new_supply != expected_supply {
                     return Err(ContractError::SupplyCapExceeded);
                 }
+                if let Some(address) = breaker.as_ref() {
+                    record_breaker_swap(&env, address, &creator, cost, impact_bps);
+                }
                 Ok(cost)
             }
             SwapDirection::Sell => {
@@ -11336,6 +11431,9 @@ impl CreatorKeysContract {
                 orders.push_back((creator.clone(), amount));
                 let results = Self::batch_sell(env.clone(), trader, orders)?;
                 let order = results.get(0).ok_or(ContractError::InsufficientSupply)?;
+                if let Some(address) = breaker.as_ref() {
+                    record_breaker_swap(&env, address, &creator, order.proceeds, impact_bps);
+                }
                 Ok(order.proceeds)
             }
         }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["creator-keys", "creator-keys-factory", "referral-contract", "lp-reward-contract", "multisig-admin", "nonce-registry"]
+members = ["creator-keys", "creator-keys-factory", "referral-contract", "lp-reward-contract", "multisig-admin", "nonce-registry", "access-control", "rating-contract", "circuit-breaker", "protocol-fee-contract"]
 resolver = "2"
 
 [workspace.package]

@@ -1959,6 +1959,44 @@ pub fn batch_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
     (BATCH_BUY_COMPLETED_EVENT_NAME, buyer.clone())
 }
 
+/// Event name for an atomic bundle purchase (Issue #1057).
+pub const BUNDLE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("bundle");
+
+/// Per-item line of a [`BundleExecutedEvent`].
+///
+/// `price_paid` is the gross cost of `amount` keys of `key_id`, i.e. the same
+/// figure `KeysBoughtEvent::price_paid` reports for a stand-alone buy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BundleItemBreakdown {
+    pub key_id: Address,
+    pub amount: u32,
+    pub price_paid: i128,
+}
+
+/// Stable bundle-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BUNDLE_EXECUTED_EVENT_NAME, buyer)`
+/// - data: `BundleExecutedEvent`
+///
+/// Emitted exactly once, only after **every** item in the bundle succeeded.
+/// `total_cost` always equals the sum of `items[*].price_paid`, and `items`
+/// preserves the order the buyer submitted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BundleExecutedEvent {
+    pub buyer: Address,
+    pub items: Vec<BundleItemBreakdown>,
+    pub total_cost: i128,
+    pub ledger: u32,
+}
+
+/// Shared bundle executed event topics tuple.
+pub fn bundle_executed_topics(buyer: &Address) -> (Symbol, Address) {
+    (BUNDLE_EXECUTED_EVENT_NAME, buyer.clone())
+}
+
 /// Event name for batch sell completion.
 pub const BATCH_SELL_COMPLETED_EVENT_NAME: Symbol = symbol_short!("bat_sell");
 

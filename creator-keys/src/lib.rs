@@ -3903,6 +3903,8 @@ fn compute_swap_buy_cost(
         total = total.checked_add(price).ok_or(ContractError::Overflow)?;
     }
     Ok(total)
+}
+
 fn assert_max_slippage_bps(
     env: &Env,
     creator: &Address,

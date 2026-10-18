@@ -20,7 +20,9 @@ pub mod emergency_pause;
 pub mod events;
 pub mod lp_reward;
 pub mod price_alerts;
+pub mod proxy;
 pub mod ratings_royalties_dividends;
+pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 
 pub mod test_feature_impl;
 pub mod test_new_features;
@@ -214,12 +216,19 @@ pub enum ContractError {
     KeyAlertLimitReached = 108,
     /// No active price alert with the given id belongs to the wallet.
     AlertNotFound = 109,
+    /// Smart contract protocol configuration is already initialized.
+    AlreadyInitialized = 110,
     // --- Atomic bundle purchase (Issue #1057) ---
     /// A bundle contains more than [`bundle::MAX_BUNDLE_ITEMS`] items.
-    BundleSizeExceeded = 110,
+    BundleSizeExceeded = 111,
     /// A bundle item could not be filled in full (for example a supply or
     /// per-wallet cap stopped the purchase early), so the whole bundle reverts.
-    BundleItemUnfilled = 111,
+    BundleItemUnfilled = 112,
+}
+
+impl ContractError {
+    #[allow(non_upper_case_globals)]
+    pub const AlreadyInitialised: Self = Self::AlreadyInitialized;
 }
 
 /// Errors raised by the staking entrypoints
@@ -10243,6 +10252,85 @@ impl CreatorKeysContract {
         Ok(config.protocol_bps)
     }
 
+    /// One-time initialization of protocol configuration (#584).
+    ///
+    /// Sets the protocol admin, protocol fee basis points, and protocol fee recipient.
+    /// Calling this on an already-initialized contract reverts with [`ContractError::AlreadyInitialized`].
+    ///
+    /// # Arguments
+    /// * `admin` - Protocol admin address. Must authorize the call.
+    /// * `fee_bps` - Protocol fee basis points (0..=PROTOCOL_BPS_MAX).
+    pub fn initialize(env: Env, admin: Address, fee_bps: u32) -> Result<(), ContractError> {
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::ADMIN_ADDRESS)
+            || read_protocol_fee_config(&env).is_some()
+        {
+            return Err(ContractError::AlreadyInitialized);
+        }
+
+        admin.require_auth();
+        validate_non_zero_address(&env, &admin)?;
+
+        let creator_bps = fee::BPS_MAX
+            .checked_sub(fee_bps)
+            .ok_or(ContractError::InvalidFeeConfig)?;
+        fee::assert_valid_fee_bps(creator_bps, fee_bps)?;
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::ADMIN_ADDRESS, &admin);
+        extend_key_ttl_to_full_window(&env, &constants::storage::ADMIN_ADDRESS);
+
+        let config = fee::FeeConfig {
+            creator_bps,
+            protocol_bps: fee_bps,
+        };
+        env.storage()
+            .persistent()
+            .set(&constants::storage::FEE_CONFIG, &config);
+        extend_key_ttl_to_full_window(&env, &constants::storage::FEE_CONFIG);
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &admin);
+        extend_key_ttl_to_full_window(&env, &constants::storage::PROTOCOL_FEE_RECIPIENT);
+
+        env.events().publish(
+            (events::CONTRACT_INITIALIZED_EVENT_NAME, admin.clone()),
+            events::ContractInitializedEvent {
+                admin: admin.clone(),
+                protocol_fee_bps: fee_bps,
+                protocol_fee_recipient: admin.clone(),
+                initialized_at_ledger: env.ledger().sequence(),
+            },
+        );
+
+        env.events().publish(
+            (events::FEE_CONFIG_UPDATED_EVENT_NAME, admin),
+            events::FeeConfigUpdatedEvent {
+                old_bps: 0,
+                new_bps: creator_bps,
+                updated_at_ledger: env.ledger().sequence(),
+            },
+        );
+
+        let current_version = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_STATE_VERSION)
+            .unwrap_or(PROTOCOL_STATE_VERSION_INITIAL);
+        let new_version = current_version
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_STATE_VERSION, &new_version);
+
+        Ok(())
+    }
+
     /// Sets the global protocol/creator fee split. Contract initialization
     /// entrypoint.
     ///
@@ -11455,6 +11543,20 @@ impl CreatorKeysContract {
             },
         );
         Ok(())
+    }
+
+    /// Seconds remaining before `wallet` may trade `key_id` again.
+    ///
+    /// Returns `0` when no cooldown is configured or the cooldown window has
+    /// already elapsed. Convenience alias over `get_cooldown_status` for
+    /// callers that want the raw seconds instead of the full status struct.
+    pub fn get_cooldown_remaining(env: Env, key_id: Address, wallet: Address) -> u64 {
+        let status = Self::get_cooldown_status(env.clone(), key_id, wallet);
+        if !status.active {
+            return 0;
+        }
+        let now = env.ledger().timestamp();
+        status.expires_at.saturating_sub(now)
     }
 
     /// Returns the cooldown status for a specific wallet on a creator's key.
@@ -20525,6 +20627,33 @@ mod tests {
         assert!(!policy.compression_enabled);
         assert_eq!(policy.batch_size, 500);
     }
+
+    // --- re-initialization unit tests (#584) ---
+
+    #[test]
+    fn test_initialize_sets_protocol_config_and_reinitialization_reverts() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(super::CreatorKeysContract, ());
+        let client = super::CreatorKeysContractClient::new(&env, &contract_id);
+        let admin_a = Address::generate(&env);
+        let admin_b = Address::generate(&env);
+
+        client.initialize(&admin_a, &300u32);
+
+        assert_eq!(client.get_protocol_admin(), Some(admin_a.clone()));
+        assert_eq!(client.get_protocol_fee_bps(), 300u32);
+        assert_eq!(client.get_protocol_fee_recipient(), Some(admin_a.clone()));
+        assert!(client.is_protocol_config_initialized());
+
+        let err = client.try_initialize(&admin_b, &500u32);
+        assert_eq!(err, Err(Ok(super::ContractError::AlreadyInitialized)));
+
+        assert_eq!(client.get_protocol_admin(), Some(admin_a.clone()));
+        assert_eq!(client.get_protocol_fee_bps(), 300u32);
+        assert_eq!(client.get_protocol_fee_recipient(), Some(admin_a));
+        assert!(client.is_protocol_config_initialized());
+    }
 }
 
 #[cfg(test)]
@@ -20565,3 +20694,6 @@ mod test_issue_998;
 
 #[cfg(test)]
 mod test_issue_1000;
+
+#[cfg(test)]
+mod test_proxy;

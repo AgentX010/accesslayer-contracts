@@ -96,12 +96,8 @@ fn announcement_pages_are_ordered_and_bounded() {
     assert_eq!(first_page.get(0).unwrap().announcement_id, 0);
     assert_eq!(first_page.get(1).unwrap().announcement_id, 1);
     assert_eq!(second_page.get(0).unwrap().announcement_id, 2);
-    assert!(client
-        .get_announcements(&creator, &3, &1)
-        .is_empty());
-    assert!(client
-        .get_announcements(&creator, &0, &0)
-        .is_empty());
+    assert!(client.get_announcements(&creator, &3, &1).is_empty());
+    assert!(client.get_announcements(&creator, &0, &0).is_empty());
     assert_eq!(
         client.try_get_announcements(&creator, &0, &(MAX_ANNOUNCEMENT_PAGE_SIZE + 1)),
         Err(Ok(ContractError::AnnouncementPageSizeExceeded))

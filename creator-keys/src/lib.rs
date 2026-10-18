@@ -3803,6 +3803,33 @@ fn assert_sell_proceeds_slippage(
     Ok(())
 }
 
+fn assert_max_slippage_bps(
+    env: &Env,
+    creator: &Address,
+    reference_price: i128,
+    execution_price_after_fees: i128,
+    max_slippage_bps: Option<u32>,
+) -> Result<(), ContractError> {
+    if let Some(max_bps) = max_slippage_bps {
+        if max_bps > 0 && reference_price > 0 {
+            let diff = if execution_price_after_fees > reference_price {
+                execution_price_after_fees - reference_price
+            } else {
+                reference_price - execution_price_after_fees
+            };
+            let actual_bps = ((diff * 10_000) / reference_price) as u32;
+            if actual_bps > max_bps {
+                env.events().publish(
+                    (soroban_sdk::symbol_short!("imp_ex"), creator.clone()),
+                    (actual_bps, max_bps),
+                );
+                return Err(ContractError::SlippageExceeded);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn accrue_sell_trade_fees(env: &Env, creator: &Address, price: i128) -> Result<(), ContractError> {
     // Deduct the protocol trade fee first so the treasury is paid before the
     // creator/seller split is computed on the remainder.
@@ -5814,6 +5841,17 @@ impl CreatorKeysContract {
         Self::buy_key(env, key_id, buyer, payment, max_price)
     }
 
+    pub fn buy_with_slippage(
+        env: Env,
+        key_id: Address,
+        buyer: Address,
+        payment: i128,
+        max_price: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
+        Self::buy_key_with_slippage(env, key_id, buyer, payment, max_price, max_slippage_bps)
+    }
+
     pub fn buy_key(
         env: Env,
         creator: Address,
@@ -5822,6 +5860,17 @@ impl CreatorKeysContract {
         max_price: Option<i128>,
     ) -> Result<u32, ContractError> {
         Self::buy_key_with_referrer(env, creator, buyer, payment, max_price, None)
+    }
+
+    pub fn buy_key_with_slippage(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        payment: i128,
+        max_price: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
+        Self::buy_key_with_ref_and_slip(env, creator, buyer, payment, max_price, None, max_slippage_bps)
     }
 
     /// Purchases multiple keys in a single transaction, subject to the creator's
@@ -5841,6 +5890,18 @@ impl CreatorKeysContract {
         Self::buy_keys_with_referrer(env, creator, buyer, quantity, payment, max_price, None)
     }
 
+    pub fn buy_keys_with_slippage(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        quantity: u32,
+        payment: i128,
+        max_price: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
+        Self::buy_keys_with_ref_and_slip(env, creator, buyer, quantity, payment, max_price, None, max_slippage_bps)
+    }
+
     pub fn buy_keys_with_referrer(
         env: Env,
         creator: Address,
@@ -5849,6 +5910,19 @@ impl CreatorKeysContract {
         payment: i128,
         max_price: Option<i128>,
         referrer: Option<Address>,
+    ) -> Result<u32, ContractError> {
+        Self::buy_keys_with_ref_and_slip(env, creator, buyer, quantity, payment, max_price, referrer, None)
+    }
+
+    pub fn buy_keys_with_ref_and_slip(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        quantity: u32,
+        payment: i128,
+        max_price: Option<i128>,
+        referrer: Option<Address>,
+        max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
         emergency_pause::assert_trading_allowed(&env, &creator)?;
@@ -6349,8 +6423,20 @@ impl CreatorKeysContract {
         max_price: Option<i128>,
         referrer: Option<Address>,
     ) -> Result<u32, ContractError> {
+        Self::buy_key_with_ref_and_slip(env, creator, buyer, payment, max_price, referrer, None)
+    }
+
+    pub fn buy_key_with_ref_and_slip(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        payment: i128,
+        max_price: Option<i128>,
+        referrer: Option<Address>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
         buyer.require_auth();
-        Self::execute_buy(env, creator, buyer, payment, max_price, referrer)
+        Self::execute_buy(env, creator, buyer, payment, max_price, referrer, max_slippage_bps)
     }
 
     /// Executes a single-key purchase for `buyer` without checking the
@@ -6368,6 +6454,7 @@ impl CreatorKeysContract {
         payment: i128,
         max_price: Option<i128>,
         referrer: Option<Address>,
+        max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
@@ -6504,6 +6591,22 @@ impl CreatorKeysContract {
         };
 
         assert_buy_price_slippage(&env, &creator, price, max_price)?;
+        if let Some(max_bps) = max_slippage_bps {
+            if max_bps > 0 {
+                let reference_price = if in_auction {
+                    price
+                } else if profile.supply == 0 {
+                    base_price
+                } else {
+                    compute_bonding_curve_price(&env, &creator, base_price, profile.supply - 1)?
+                };
+                let net_price = {
+                    let trade_fee = compute_trade_fee(&env, price)?;
+                    fee::checked_sub_i128(price, trade_fee).unwrap_or(price)
+                };
+                assert_max_slippage_bps(&env, &creator, reference_price, net_price, Some(max_bps))?;
+            }
+        }
 
         if payment < price {
             return Err(ContractError::InsufficientPayment);
@@ -6847,6 +6950,16 @@ impl CreatorKeysContract {
         seller: Address,
         min_proceeds: Option<i128>,
     ) -> Result<u32, ContractError> {
+        Self::sell_key_with_slippage(env, creator, seller, min_proceeds, None)
+    }
+
+    pub fn sell_key_with_slippage(
+        env: Env,
+        creator: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
         seller.require_auth();
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
@@ -6961,6 +7074,12 @@ impl CreatorKeysContract {
         settle_holder_dividends(&env, &creator, &seller, current_balance)?;
 
         assert_sell_proceeds_slippage(&env, &creator, price, min_proceeds)?;
+        if let Some(max_bps) = max_slippage_bps {
+            if max_bps > 0 {
+                let proceeds = compute_sell_proceeds(&env, price)?;
+                assert_max_slippage_bps(&env, &creator, curve_price, proceeds, Some(max_bps))?;
+            }
+        }
 
         // A sell is market activity too, so it feeds the same rolling volume window
         // as a buy. Recorded before the fee split so the tier reflects this trade.
@@ -17476,6 +17595,7 @@ impl CreatorKeysContract {
             creator.clone(),
             buyer.clone(),
             payment,
+            None,
             None,
             None,
         )?;

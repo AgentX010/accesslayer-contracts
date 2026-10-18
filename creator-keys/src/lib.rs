@@ -224,10 +224,10 @@ pub enum ContractError {
     /// A bundle item could not be filled in full (for example a supply or
     /// per-wallet cap stopped the purchase early), so the whole bundle reverts.
     BundleItemUnfilled = 112,
-    /// The requested announcement page exceeds the supported maximum size.
-    AnnouncementPageSizeExceeded = 113,
-    /// An announcement index points to a record that is no longer available.
-    AnnouncementRecordMissing = 114,
+    /// A buy was attempted on a creator whose archived state is being restored (#709).
+    StateRestoring = 113,
+    /// The creator is not in the lifecycle state the archive operation requires (#709).
+    InvalidLifecycleState = 114,
 }
 
 impl ContractError {
@@ -727,6 +727,10 @@ pub mod constants {
 
         pub fn creator(creator: &Address) -> DataKey {
             creator_key(creator)
+        }
+
+        pub fn archive_manifest(creator: &Address) -> DataKey {
+            DataKey::ArchiveManifest(creator.clone())
         }
 
         pub fn holder_balance_key(creator_id: &Address, holder: &Address) -> DataKey {
@@ -1768,6 +1772,31 @@ pub struct RetentionPolicy {
     pub batch_size: u32,
 }
 
+/// Lifecycle state of a creator's archive (#709).
+///
+/// A creator is `Active` until `archive_creator` records a manifest for it.
+/// `Archived` means the manifest exists but restoration has not started.
+/// `Restoring` is the window in which the archived state is being copied back
+/// to active storage: reads keep working and buys are held off until
+/// `complete_restore` finishes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum CreatorLifecycle {
+    Active = 0,
+    Archived = 1,
+    Restoring = 2,
+}
+
+/// Snapshot of a creator's operational state, written by `archive_creator` and
+/// replayed into the live profile by `complete_restore` (#709).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ArchiveManifest {
+    pub state: CreatorLifecycle,
+    pub supply: u32,
+    pub holder_count: u32,
+}
+
 /// Canonical storage key schema for persistent protocol state.
 ///
 /// For quote-related key usage and invariants, see
@@ -2049,6 +2078,8 @@ pub enum DataKey {
     /// Protocol-wide minimum investment amount in stroops required for a buy
     /// (issue #792). Absent means no minimum is configured.
     MinInvestmentAmount,
+    /// (creator) -> `ArchiveManifest` recording archive/restoration state (#709).
+    ArchiveManifest(Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2751,6 +2782,16 @@ pub fn read_registered_creator_profile(
     read_creator_profile(env, creator).ok_or(ContractError::NotRegistered)
 }
 
+/// Returns the creator's archive lifecycle state, defaulting to
+/// [`CreatorLifecycle::Active`] when no manifest exists (#709).
+pub fn read_creator_lifecycle(env: &Env, creator: &Address) -> CreatorLifecycle {
+    env.storage()
+        .persistent()
+        .get::<DataKey, ArchiveManifest>(&constants::storage::archive_manifest(creator))
+        .map(|manifest| manifest.state)
+        .unwrap_or(CreatorLifecycle::Active)
+}
+
 /// Reads the key balance (supply) for a creator, returning `0` for unregistered creators.
 ///
 /// Use this helper wherever repeated key balance read logic is needed to keep
@@ -3358,6 +3399,16 @@ fn assert_position_not_frozen(
 ) -> Result<(), ContractError> {
     if is_position_frozen(env, key_id, wallet) {
         return Err(ContractError::FrozenPosition);
+    }
+    Ok(())
+}
+
+/// Rejects buys while a creator's archived state is being restored (#709).
+///
+/// Reads stay available during the `Restoring` window; only writes are held off.
+fn assert_creator_not_restoring(env: &Env, creator: &Address) -> Result<(), ContractError> {
+    if read_creator_lifecycle(env, creator) == CreatorLifecycle::Restoring {
+        return Err(ContractError::StateRestoring);
     }
     Ok(())
 }
@@ -6201,6 +6252,7 @@ impl CreatorKeysContract {
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
         assert_position_not_frozen(&env, &creator, &buyer)?;
+        assert_creator_not_restoring(&env, &creator)?;
 
         // Reject buys on deprecated keys immediately — before any price or fee math.
         if env
@@ -6771,6 +6823,7 @@ impl CreatorKeysContract {
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
         assert_position_not_frozen(&env, &creator, &buyer)?;
+        assert_creator_not_restoring(&env, &creator)?;
 
         // Reject buys on deprecated keys immediately — before any price or fee math.
         if env
@@ -11028,6 +11081,89 @@ impl CreatorKeysContract {
     /// Does not mutate contract state or panic when uninitialized.
     pub fn get_retention_policy(env: Env) -> RetentionPolicy {
         read_retention_policy(&env)
+    }
+
+    /// Records an archive manifest for `creator` and moves it to the
+    /// `Archived` lifecycle state (#709).
+    ///
+    /// `creator` must authorize the call and be registered. Returns
+    /// [`ContractError::InvalidLifecycleState`] if a manifest already exists.
+    pub fn archive_creator(env: Env, creator: Address) -> Result<(), ContractError> {
+        creator.require_auth();
+        let profile = read_registered_creator_profile(&env, &creator)?;
+
+        let key = constants::storage::archive_manifest(&creator);
+        if env.storage().persistent().has(&key) {
+            return Err(ContractError::InvalidLifecycleState);
+        }
+
+        let manifest = ArchiveManifest {
+            state: CreatorLifecycle::Archived,
+            supply: profile.supply,
+            holder_count: profile.holder_count,
+        };
+        env.storage().persistent().set(&key, &manifest);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        Ok(())
+    }
+
+    /// Moves `creator`'s archive from `Archived` to `Restoring` (#709).
+    ///
+    /// While `Restoring`, reads are served normally but buys are rejected with
+    /// [`ContractError::StateRestoring`].
+    pub fn begin_restore(env: Env, creator: Address) -> Result<(), ContractError> {
+        creator.require_auth();
+
+        let key = constants::storage::archive_manifest(&creator);
+        let mut manifest: ArchiveManifest = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::InvalidLifecycleState)?;
+        if manifest.state != CreatorLifecycle::Archived {
+            return Err(ContractError::InvalidLifecycleState);
+        }
+
+        manifest.state = CreatorLifecycle::Restoring;
+        env.storage().persistent().set(&key, &manifest);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        Ok(())
+    }
+
+    /// Replays the archived snapshot into the live creator profile and returns
+    /// the creator to `Active` (#709).
+    pub fn complete_restore(env: Env, creator: Address) -> Result<(), ContractError> {
+        creator.require_auth();
+
+        let key = constants::storage::archive_manifest(&creator);
+        let manifest: ArchiveManifest = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::InvalidLifecycleState)?;
+        if manifest.state != CreatorLifecycle::Restoring {
+            return Err(ContractError::InvalidLifecycleState);
+        }
+
+        let mut profile = read_registered_creator_profile(&env, &creator)?;
+        profile.supply = manifest.supply;
+        profile.holder_count = manifest.holder_count;
+        let profile_key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&profile_key, &profile);
+        extend_key_ttl_to_full_window(&env, &profile_key);
+        env.storage().persistent().remove(&key);
+
+        Ok(())
+    }
+
+    /// Read-only view: returns `creator`'s archive lifecycle state (#709).
+    ///
+    /// Defaults to [`CreatorLifecycle::Active`] when the creator has never been
+    /// archived.
+    pub fn get_creator_lifecycle(env: Env, creator: Address) -> CreatorLifecycle {
+        read_creator_lifecycle(&env, &creator)
     }
 
     /// Read-only view: returns whether protocol configuration has been initialized.
@@ -18239,6 +18375,28 @@ impl CreatorKeysContract {
     /// Read-only view of total collected trading rewards for a key pair.
     pub fn get_lp_pool_rewards(env: Env, key_id: Address) -> i128 {
         lp_reward::get_pool_rewards(&env, key_id)
+    }
+
+    /// Sets the reward rate (in basis points) for `key_id`'s LP pool.
+    ///
+    /// Restricted to the creator that owns `key_id`. Rate changes only affect
+    /// future fee accruals — existing positions are not retroactively adjusted.
+    /// `new_rate_bps` must be between [`lp_reward::MIN_REWARD_RATE_BPS`] and
+    /// [`lp_reward::MAX_REWARD_RATE_BPS`] inclusive.
+    pub fn set_reward_rate(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        new_rate_bps: u32,
+    ) -> Result<(), lp_reward::LpRewardError> {
+        read_registered_creator_profile(&env, &key_id)
+            .map_err(|_| lp_reward::LpRewardError::Unauthorized)?;
+        lp_reward::set_reward_rate(&env, key_id, caller, new_rate_bps)
+    }
+
+    /// Returns the current reward rate and the timestamp at which it was last set for `key_id`.
+    pub fn get_reward_rate(env: Env, key_id: Address) -> lp_reward::RewardRate {
+        lp_reward::get_reward_rate(&env, key_id)
     }
 
     /// Sets the trusted forwarder address that may submit buys on behalf of users.

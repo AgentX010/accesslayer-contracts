@@ -178,13 +178,14 @@ fn test_creator_keys_validation_errors() {
 
 #[test]
 fn test_set_reward_rate_creator_only() {
-    let (_env, client, _admin, creator) = setup_test();
+    let (env, client, _admin, creator) = setup_test();
+    env.ledger().set_timestamp(1_000_000);
 
     client.set_reward_rate(&creator, &creator, &500);
 
     let rate = client.get_reward_rate(&creator);
     assert_eq!(rate.rate_bps, 500);
-    assert!(rate.updated_at > 0);
+    assert_eq!(rate.updated_at, 1_000_000);
 }
 
 #[test]
@@ -192,23 +193,29 @@ fn test_set_reward_rate_emits_event_with_old_and_new() {
     let (env, client, _admin, creator) = setup_test();
 
     // First update: old rate is 0 (unset default)
+    env.ledger().set_timestamp(1_000);
     client.set_reward_rate(&creator, &creator, &100);
 
+    // Events from the most recent call
     let events: Vec<RewardRateUpdated> = get_events(&env, LP_RATE_UPDATED_EVENT_NAME);
     assert_eq!(events.len(), 1);
     let ev = events.get(0).unwrap();
     assert_eq!(ev.key_id, creator);
     assert_eq!(ev.old_rate_bps, 0);
     assert_eq!(ev.new_rate_bps, 100);
+    assert_eq!(ev.updated_at, 1_000);
 
     // Second update: old rate is 100, new is 300
+    env.ledger().set_timestamp(2_000);
     client.set_reward_rate(&creator, &creator, &300);
 
+    // Events from the most recent call only
     let events: Vec<RewardRateUpdated> = get_events(&env, LP_RATE_UPDATED_EVENT_NAME);
-    assert_eq!(events.len(), 2);
-    let ev2 = events.get(1).unwrap();
+    assert_eq!(events.len(), 1);
+    let ev2 = events.get(0).unwrap();
     assert_eq!(ev2.old_rate_bps, 100);
     assert_eq!(ev2.new_rate_bps, 300);
+    assert_eq!(ev2.updated_at, 2_000);
 }
 
 #[test]
@@ -245,9 +252,36 @@ fn test_set_reward_rate_max_bound_enforced() {
 
 #[test]
 fn test_set_reward_rate_unauthorized_non_creator() {
-    let (env, client, _admin, creator) = setup_test();
+    // No mock_all_auths: require_auth actually enforces authorization.
+    // Bootstrap calls get explicit per-call auth mocks; the stranger gets none.
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
     let stranger = Address::generate(&env);
 
+    // Authorize only the bootstrap calls.
+    env.mock_all_auths();
+    client.set_protocol_admin(&admin, &admin);
+    client.register_creator(
+        &RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice_lp"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Clear mocks so subsequent require_auth calls are enforced.
+    env.mock_auths(&[]);
+
+    // A stranger with no authorization must be rejected.
     let result = client.try_set_reward_rate(&creator, &stranger, &200);
     assert!(result.is_err());
 }

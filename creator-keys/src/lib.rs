@@ -4871,10 +4871,8 @@ fn current_spot_price(env: &Env, creator: &Address) -> i128 {
         .get(&constants::storage::KEY_PRICE)
         .unwrap_or(0);
     match read_registered_creator_profile(env, creator) {
-        Ok(profile) => {
-            compute_bonding_curve_price(env, creator, base_price, profile.supply)
-                .unwrap_or(base_price)
-        }
+        Ok(profile) => compute_bonding_curve_price(env, creator, base_price, profile.supply)
+            .unwrap_or(base_price),
         Err(_) => base_price,
     }
 }

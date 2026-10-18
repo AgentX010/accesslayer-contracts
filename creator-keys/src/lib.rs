@@ -22,6 +22,7 @@ pub mod lp_reward;
 pub mod price_alerts;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
+pub mod supply_milestones;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 
 pub mod test_feature_impl;
@@ -703,6 +704,11 @@ pub mod constants {
 
         pub fn graduated_curve(creator: &Address) -> DataKey {
             DataKey::GraduatedCurve(creator.clone())
+        }
+
+        /// Storage key for a key's graduated supply milestone configuration (#1076).
+        pub fn key_milestones(key_id: &Address) -> DataKey {
+            DataKey::KeyMilestones(key_id.clone())
         }
 
         pub fn creator_fee_balance(creator: &Address) -> DataKey {
@@ -2080,6 +2086,8 @@ pub enum DataKey {
     MinInvestmentAmount,
     /// (creator) -> `ArchiveManifest` recording archive/restoration state (#709).
     ArchiveManifest(Address),
+    /// Per-key graduated supply milestone tiers with automatic fee reduction (#1076).
+    KeyMilestones(Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -6471,6 +6479,8 @@ impl CreatorKeysContract {
             // Supply and holder_count must always move together with buyer balance writes.
             write_creator_supply(&env, &creator, profile.supply);
             emit_milestone_crossings(&env, &creator, profile.supply - 1, profile.supply)?;
+            // Apply any newly reached graduated supply milestone (fee reduction).
+            supply_milestones::check_and_apply_milestone(&env, &creator)?;
 
             // Record the key creation ledger on the first buy for launch penalty tracking.
             if profile.supply == 1 {
@@ -7052,6 +7062,8 @@ impl CreatorKeysContract {
         // Supply and holder_count must always move together with buyer balance writes.
         write_creator_supply(&env, &creator, profile.supply);
         emit_milestone_crossings(&env, &creator, profile.supply - 1, profile.supply)?;
+        // Apply any newly reached graduated supply milestone (fee reduction).
+        supply_milestones::check_and_apply_milestone(&env, &creator)?;
 
         // Record the key creation ledger on the first buy for launch penalty tracking.
         if profile.supply == 1 {
@@ -7442,6 +7454,8 @@ impl CreatorKeysContract {
         // Supply and holder balance are updated together to preserve
         // supply/holder_count invariants for subsequent reads.
         write_creator_supply(&env, &creator, profile.supply);
+        // Apply any newly reached graduated supply milestone (fee reduction).
+        supply_milestones::check_and_apply_milestone(&env, &creator)?;
         if new_balance == 0 {
             env.storage().persistent().remove(&balance_key);
             env.storage()
@@ -8155,6 +8169,38 @@ impl CreatorKeysContract {
             .persistent()
             .get(&constants::storage::SUPPLY_MILESTONES)
             .unwrap_or(Vec::new(&env))
+    }
+
+    // =========================================================================
+    // Feature: graduated supply milestones with automatic fee reduction (#1076)
+    // =========================================================================
+
+    /// Configure the graduated supply milestone tiers for a key (admin-only, at
+    /// key creation). Each tier pairs a circulating-supply threshold with the
+    /// fee bps that applies once that threshold is reached.
+    pub fn set_milestones(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        milestones: Vec<supply_milestones::MilestoneTier>,
+    ) -> Result<(), ContractError> {
+        supply_milestones::set_milestones(&env, &admin, &key_id, milestones)
+    }
+
+    /// Re-evaluate and apply any newly reached milestone tier for `key_id`
+    /// post-swap, lowering the fee in effect without ever regressing to a
+    /// higher fee.
+    pub fn check_and_apply_milestone(
+        env: Env,
+        key_id: Address,
+    ) -> Result<(u32, u32), ContractError> {
+        supply_milestones::check_and_apply_milestone(&env, &key_id)
+    }
+
+    /// Read-only view: returns the active milestone tier (1-based count of
+    /// tiers reached) and the fee bps currently in effect for `key_id`.
+    pub fn get_current_milestone(env: Env, key_id: Address) -> Result<(u32, u32), ContractError> {
+        supply_milestones::get_current_milestone(&env, &key_id)
     }
 
     /// Stages a timelocked upgrade of the contract's logic build and returns the

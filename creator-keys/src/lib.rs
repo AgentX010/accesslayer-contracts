@@ -9,6 +9,7 @@ use soroban_sdk::{
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
+pub mod bundle;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
 ///
 /// Declared here as part of Issue #953 — the file existed but had no `mod`
@@ -217,6 +218,12 @@ pub enum ContractError {
     AlertNotFound = 109,
     /// Smart contract protocol configuration is already initialized.
     AlreadyInitialized = 110,
+    // --- Atomic bundle purchase (Issue #1057) ---
+    /// A bundle contains more than [`bundle::MAX_BUNDLE_ITEMS`] items.
+    BundleSizeExceeded = 111,
+    /// A bundle item could not be filled in full (for example a supply or
+    /// per-wallet cap stopped the purchase early), so the whole bundle reverts.
+    BundleItemUnfilled = 112,
 }
 
 impl ContractError {
@@ -2420,6 +2427,13 @@ pub struct PriceObservation {
 pub struct RoyaltyConfig {
     pub buy_fee_bps: u32,
     pub sell_fee_bps: u32,
+}
+
+/// Internal result of the shared buy implementation.
+pub(crate) struct BuyOutcome {
+    pub new_supply: u32,
+    pub keys_bought: u32,
+    pub total_price: i128,
 }
 
 /// Result of a single order in a batch buy.
@@ -5991,6 +6005,33 @@ impl CreatorKeysContract {
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
+        Self::buy_keys_core(
+            env,
+            creator,
+            buyer,
+            quantity,
+            payment,
+            max_price,
+            referrer,
+            max_slippage_bps,
+        )
+        .map(|outcome| outcome.new_supply)
+    }
+
+    /// Shared buy implementation used by [`Self::buy_keys_with_ref_and_slip`] and
+    /// the atomic bundle entrypoint. It performs **no** `require_auth`; callers
+    /// must authorize `buyer` themselves (once per invocation frame).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn buy_keys_core(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        quantity: u32,
+        payment: i128,
+        max_price: Option<i128>,
+        referrer: Option<Address>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<BuyOutcome, ContractError> {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
@@ -6504,7 +6545,11 @@ impl CreatorKeysContract {
         // Extend TTL for creator storage after successful buy
         extend_creator_ttl(&env, &creator);
 
-        Ok(profile.supply)
+        Ok(BuyOutcome {
+            new_supply: profile.supply,
+            keys_bought,
+            total_price,
+        })
     }
 
     pub fn buy_key_with_referrer(

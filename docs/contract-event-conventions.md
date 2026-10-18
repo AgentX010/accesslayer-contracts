@@ -82,5 +82,74 @@ Notes for indexers:
   its escalation budget ran out reports `quorum_reached == false` together with
   `finalized_by_exhaustion == true`.
 
+### Events Added Alongside the Timelocked Logic Upgrade
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `upg_appr` | `(Symbol("upg_appr"), action_id)` | `admin`, `action_id`, `approvals`, `threshold` | `struct UpgradeApprovedEvent` |
+| `logic_upg` | `(Symbol("logic_upg"), action_id)` | `action_id`, `admin`, `old_wasm_hash`, `new_wasm_hash`, `previous_wasm_hash`, `applied_at_ledger` | `struct LogicUpgradedEvent` |
+
+Notes for indexers:
+
+- Topic index 1 is the timelock `action_id` (a `u32`), **not** an `Address`. These
+  two events are the only ones in the contract whose secondary topic is not an
+  address, so indexers that assume `Address` at index 1 must special-case them.
+- `old_wasm_hash` and `previous_wasm_hash` are both absent on a first upgrade
+  (`Option::None`), since neither a prior build nor a rollback target exists yet.
+- `logic_upg` is emitted **in addition to** the pre-existing
+  `UpgradeExecutedEvent` when a timelocked upgrade applies, so existing
+  consumers of the older event keep working. `LogicUpgradedEvent` is the
+  hash-specific, indexer-facing event and is the one to prefer.
+- Because the upgrade swaps code via `update_current_contract_wasm`, `logic_upg`
+  is emitted by the **new** build at the same contract address; there is no
+  separate logic-contract address to follow.
+### Emergency Platform Pause Events (#1000)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `plat_pau` | `(Symbol("plat_pau"), actor)` | `actor`, `timestamp` | `struct PlatformPausedEvent` |
+| `plat_rq` | `(Symbol("plat_rq"), actor)` | `actor`, `executable_at` | `struct PlatformResumeQueuedEvent` |
+| `plat_res` | `(Symbol("plat_res"), actor)` | `actor`, `timestamp` | `struct PlatformResumedEvent` |
+| `key_pau` | `(Symbol("key_pau"), key_id)` | `key_id`, `paused`, `actor` | `struct KeyPauseOverrideEvent` |
+
+`actor` is the first signer of the multisig call. `timestamp` and
+`executable_at` are ledger timestamps in seconds, not ledger sequence numbers.
+
+### Price Alert Events (#1030)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `alert_reg` | `(Symbol("alert_reg"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `direction`, `target_price`, `ledger` | `struct PriceAlertRegisteredEvent` |
+| `alert_trg` | `(Symbol("alert_trg"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `direction`, `target_price`, `new_price`, `ledger` | `struct PriceAlertTriggeredEvent` |
+| `alert_cxl` | `(Symbol("alert_cxl"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `ledger` | `struct PriceAlertCancelledEvent` |
+
+Notes for indexers:
+
+- `alert_trg` is emitted from inside a buy or sell (`buy_key`, `buy_keys`,
+  `buy_key_with_referrer`, `forward_buy`, `sell_key`, `batch_buy`,
+  `batch_buy_v2`, `batch_sell`, `batch_sell_v2`, `reinvest_dividend`), after
+  that trade's own `buy` / `sell` event. One trade can emit several, one per
+  alert it fires, in registration order.
+- Each `alert_id` produces at most one `alert_trg` or one `alert_cxl`, never
+  both and never twice. After either event the alert is gone.
+- `new_price` is the key's bonding-curve spot price after the trade (the price
+  of the next key at the new supply), in the same raw `i128` units as the key
+  price. It is not the price paid for the trade.
+- `direction` is the `AlertDirection` enum, encoded as a `u32`: `0` = `Above`,
+  `1` = `Below`.
+
+### Referral Tier Upgrade Events (#1034)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `tier_upg` | `(Symbol("tier_upg"), referrer)` | `referrer`, `old_tier`, `new_tier`, `volume`, `reward_rate_bps` | `struct ReferralTierUpgraded` |
+
+Notes for indexers:
+
+- `tier_upg` is emitted when a referrer's cumulative referred trade volume crosses a tier threshold.
+- Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
+- `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+

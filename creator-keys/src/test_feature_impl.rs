@@ -55,8 +55,9 @@ fn init_metadata(env: &Env, client: &CreatorKeysContractClient, creator: &Addres
         creator,
         &KeyMetadata {
             name: String::from_str(env, "MyKey"),
-            bio: String::from_str(env, "A test key"),
-            avatar_uri: String::from_str(env, "https://img.example.com/key.png"),
+            symbol: String::from_str(env, "MYKEY"),
+            description: String::from_str(env, "A test key"),
+            image_cid: String::from_str(env, "bafykeyimage"),
         },
     );
 }
@@ -173,31 +174,39 @@ fn update_metadata_emits_event_on_change() {
     // Should succeed and (implicitly) emit event.
     client.update_metadata(
         &creator,
-        &Some(String::from_str(&env, "NewName")),
-        &None,
-        &None,
+        &String::from_str(&env, "New description"),
+        &String::from_str(&env, "bafy-new-image"),
     );
 
     let stored = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(stored.name, String::from_str(&env, "NewName"));
-    assert_eq!(stored.bio, String::from_str(&env, "A test key")); // unchanged
+    assert_eq!(stored.name, String::from_str(&env, "MyKey"));
+    assert_eq!(stored.symbol, String::from_str(&env, "MYKEY"));
+    assert_eq!(
+        stored.description,
+        String::from_str(&env, "New description")
+    );
+    assert_eq!(stored.image_cid, String::from_str(&env, "bafy-new-image"));
 }
 
 #[test]
-fn update_metadata_none_fields_leave_data_intact() {
+fn update_metadata_unchanged_values_leave_data_intact() {
     let (env, client, _admin) = setup();
     let creator = Address::generate(&env);
     register(&env, &client, &creator);
     init_metadata(&env, &client, &creator);
 
-    client.update_metadata(&creator, &None, &None, &None);
+    client.update_metadata(
+        &creator,
+        &String::from_str(&env, "A test key"),
+        &String::from_str(&env, "bafykeyimage"),
+    );
 
     let stored = client.get_key_metadata(&creator).unwrap();
     assert_eq!(stored.name, String::from_str(&env, "MyKey"));
 }
 
 #[test]
-fn update_metadata_non_creator_rejected() {
+fn update_metadata_unknown_key_rejected() {
     let (env, client, _admin) = setup();
     let creator = Address::generate(&env);
     let attacker = Address::generate(&env);
@@ -207,9 +216,8 @@ fn update_metadata_non_creator_rejected() {
     // Attacker has no metadata, so returns NotRegistered.
     let result = client.try_update_metadata(
         &attacker,
-        &Some(String::from_str(&env, "Hacked")),
-        &None,
-        &None,
+        &String::from_str(&env, "Hacked"),
+        &String::from_str(&env, "bafy-hacked"),
     );
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
@@ -606,4 +614,47 @@ fn batch_buy_v2_multi_order_slippage_independent_per_order() {
     // Because Soroban tx atomicity rolls back, neither order should have landed.
     assert_eq!(client.get_key_balance(&creator_a, &buyer), 0);
     assert_eq!(client.get_key_balance(&creator_b, &buyer), 0);
+}
+
+#[test]
+fn batch_sell_v2_succeeds_single_order_no_slippage() {
+    let (env, client, _admin) = setup();
+    let creator = Address::generate(&env);
+    let seller = Address::generate(&env);
+    register(&env, &client, &creator);
+
+    client.buy_key(&creator, &seller, &500i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+
+    let mut orders = soroban_sdk::Vec::new(&env);
+    orders.push_back((creator.clone(), 1u32, None::<i128>));
+
+    let results = client.batch_sell_v2(&seller, &orders);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results.get(0).unwrap().quantity, 1);
+    assert_eq!(client.get_key_balance(&creator, &seller), 0);
+}
+
+#[test]
+fn batch_sell_v2_reverts_on_per_order_slippage_breach() {
+    let (env, client, _admin) = setup();
+    let creator_a = Address::generate(&env);
+    let creator_b = Address::generate(&env);
+    let seller = Address::generate(&env);
+    register(&env, &client, &creator_a);
+    register(&env, &client, &creator_b);
+
+    client.buy_key(&creator_a, &seller, &500i128, &None);
+    client.buy_key(&creator_b, &seller, &500i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+
+    let mut orders = soroban_sdk::Vec::new(&env);
+    orders.push_back((creator_a.clone(), 1u32, None::<i128>));
+    orders.push_back((creator_b.clone(), 1u32, Some(1i128))); // tighter bound than actual proceeds
+
+    let result = client.try_batch_sell_v2(&seller, &orders);
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+
+    assert_eq!(client.get_key_balance(&creator_a, &seller), 1);
+    assert_eq!(client.get_key_balance(&creator_b, &seller), 1);
 }

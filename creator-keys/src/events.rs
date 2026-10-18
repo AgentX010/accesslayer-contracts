@@ -1140,6 +1140,7 @@ pub const EARLY_ACCESS_MODE_CHANGED_EVENT_NAME: Symbol = symbol_short!("ea_mode"
 pub const REFERRAL_REGISTERED_EVENT_NAME: Symbol = symbol_short!("ref_reg");
 pub const REFERRAL_REWARD_ALLOCATED_EVENT_NAME: Symbol = symbol_short!("ref_rwd");
 pub const REFERRAL_REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("ref_clm");
+pub const REFERRAL_TIER_UPGRADED_EVENT_NAME: Symbol = symbol_short!("tier_upg");
 pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
 pub const SELF_FREEZE_APPLIED_EVENT_NAME: Symbol = symbol_short!("sf_add");
 pub const SELF_FREEZE_LIFTED_EVENT_NAME: Symbol = symbol_short!("sf_del");
@@ -1472,6 +1473,20 @@ pub struct ReferralRewardsClaimedEvent {
 
 pub fn referral_rewards_claimed_topics() -> Symbol {
     REFERRAL_REWARDS_CLAIMED_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralTierUpgradedEvent {
+    pub referrer: Address,
+    pub old_tier: u32,
+    pub new_tier: u32,
+    pub volume: i128,
+    pub reward_rate_bps: u32,
+}
+
+pub fn referral_tier_upgraded_topics(referrer: &Address) -> (Symbol, Address) {
+    (REFERRAL_TIER_UPGRADED_EVENT_NAME, referrer.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1957,6 +1972,44 @@ pub struct BatchBuyCompletedEvent {
 /// Shared batch buy completed event topics tuple.
 pub fn batch_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
     (BATCH_BUY_COMPLETED_EVENT_NAME, buyer.clone())
+}
+
+/// Event name for an atomic bundle purchase (Issue #1057).
+pub const BUNDLE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("bundle");
+
+/// Per-item line of a [`BundleExecutedEvent`].
+///
+/// `price_paid` is the gross cost of `amount` keys of `key_id`, i.e. the same
+/// figure `KeysBoughtEvent::price_paid` reports for a stand-alone buy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BundleItemBreakdown {
+    pub key_id: Address,
+    pub amount: u32,
+    pub price_paid: i128,
+}
+
+/// Stable bundle-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BUNDLE_EXECUTED_EVENT_NAME, buyer)`
+/// - data: `BundleExecutedEvent`
+///
+/// Emitted exactly once, only after **every** item in the bundle succeeded.
+/// `total_cost` always equals the sum of `items[*].price_paid`, and `items`
+/// preserves the order the buyer submitted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BundleExecutedEvent {
+    pub buyer: Address,
+    pub items: Vec<BundleItemBreakdown>,
+    pub total_cost: i128,
+    pub ledger: u32,
+}
+
+/// Shared bundle executed event topics tuple.
+pub fn bundle_executed_topics(buyer: &Address) -> (Symbol, Address) {
+    (BUNDLE_EXECUTED_EVENT_NAME, buyer.clone())
 }
 
 /// Event name for batch sell completion.

@@ -21,6 +21,7 @@ pub mod events;
 pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
+pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;

@@ -9990,7 +9990,9 @@ impl CreatorKeysContract {
             .checked_sub(total_allocated)
             .ok_or(ContractError::InsufficientBalance)?;
         let fee_balance_key = constants::storage::creator_fee_balance(&key_id);
-        env.storage().persistent().set(&fee_balance_key, &updated_fees);
+        env.storage()
+            .persistent()
+            .set(&fee_balance_key, &updated_fees);
         extend_key_ttl_to_full_window(&env, &fee_balance_key);
 
         // Advance global distribution counter
@@ -10003,7 +10005,9 @@ impl CreatorKeysContract {
         let distribution_id = current_count
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
-        env.storage().persistent().set(&global_count_key, &distribution_id);
+        env.storage()
+            .persistent()
+            .set(&global_count_key, &distribution_id);
         extend_key_ttl_to_full_window(&env, &global_count_key);
 
         // Persist per-holder snapshot shares
@@ -10080,11 +10084,7 @@ impl CreatorKeysContract {
         }
 
         let share_key = RevenueShareKey::SnapshotShare(distribution_id, claimant.clone());
-        let share: i128 = env
-            .storage()
-            .persistent()
-            .get(&share_key)
-            .unwrap_or(0);
+        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
         if share == 0 {
             return Err(ContractError::NoDividendClaimable);
         }
@@ -10095,11 +10095,7 @@ impl CreatorKeysContract {
 
         // Credit holder_dividend_pending for (meta.key_id, claimant)
         let pending_key = constants::storage::holder_dividend_pending(&meta.key_id, &claimant);
-        let current_pending: i128 = env
-            .storage()
-            .persistent()
-            .get(&pending_key)
-            .unwrap_or(0);
+        let current_pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
         let new_pending = fee::checked_accumulate(current_pending, share)?;
         env.storage().persistent().set(&pending_key, &new_pending);
         extend_key_ttl_to_full_window(&env, &pending_key);
@@ -10121,11 +10117,7 @@ impl CreatorKeysContract {
     /// Read-only view: returns both claimable and claimed amounts for a wallet in a distribution (issue #1135).
     pub fn get_revenue_share(env: Env, distribution_id: u32, wallet: Address) -> RevenueShareView {
         let share_key = RevenueShareKey::SnapshotShare(distribution_id, wallet.clone());
-        let share: i128 = env
-            .storage()
-            .persistent()
-            .get(&share_key)
-            .unwrap_or(0);
+        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
 
         let claimed_key = RevenueShareKey::Claimed(distribution_id, wallet);
         let is_claimed: bool = env

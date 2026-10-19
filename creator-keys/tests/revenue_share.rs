@@ -32,9 +32,7 @@ use soroban_sdk::{Address, Env, IntoVal};
 
 const KEY_PRICE: i128 = 1_000;
 
-fn setup_test_context(
-    env: &Env,
-) -> (CreatorKeysContractClient<'_>, Address, Address, Address) {
+fn setup_test_context(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address, Address) {
     let (client, _) = register_creator_keys(env);
     set_pricing_and_fees(
         env,

@@ -385,6 +385,14 @@ Returns the configured protocol admin address, or `None` if not yet set.
 
 ---
 
+### `check_lockup(wallet: Address, key_id: Address) → (bool, u64)`
+
+Returns `(locked, seconds_remaining)` for the wallet's investor lock-up on the
+specified key. `seconds_remaining` is zero when no lock-up exists or the
+inclusive unlock timestamp has been reached.
+
+---
+
 ### `get_protocol_fee_recipient(env: Env) → Option<Address>`
 
 Returns the configured protocol fee recipient address, or `None` if not yet set.

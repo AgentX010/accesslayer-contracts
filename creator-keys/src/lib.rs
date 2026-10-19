@@ -19,6 +19,7 @@ pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
 pub mod events;
+pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
 pub mod proxy;
@@ -234,6 +235,24 @@ pub enum ContractError {
     AnnouncementPageSizeExceeded = 115,
     /// An announcement index points to a record that is no longer available.
     AnnouncementRecordMissing = 116,
+    /// The wallet's keys are still inside an investor lock-up window.
+    LockupActive = 117,
+    /// No investor lock-up exists for the supplied wallet and key.
+    LockupNotFound = 118,
+    // --- Key ownership handover (Issue #1098) ---
+    /// No ownership-transfer proposal with that id exists (never existed, or it
+    /// has already been executed or cancelled).
+    TransferProposalNotFound = 119,
+    /// The key already has a live ownership-transfer proposal; execute or cancel
+    /// it before raising another one.
+    TransferAlreadyPending = 120,
+    /// The proposal was not accepted within the 48h acceptance window.
+    TransferWindowExpired = 121,
+    /// `execute_transfer` was called on a proposal the proposed new owner has
+    /// not accepted (which is also what an expired, unaccepted proposal reports).
+    TransferNotAccepted = 122,
+    /// The proposed new owner already accepted this proposal.
+    TransferAlreadyAccepted = 123,
 }
 
 impl ContractError {
@@ -851,6 +870,10 @@ pub mod constants {
 
         pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
             DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
+        }
+
+        pub fn investor_lockup(wallet: &Address, key_id: &Address) -> DataKey {
+            DataKey::InvestorLockup(wallet.clone(), key_id.clone())
         }
 
         pub fn max_keys_per_wallet(creator: &Address) -> DataKey {
@@ -2093,6 +2116,8 @@ pub enum DataKey {
     ArchiveManifest(Address),
     /// Per-key graduated supply milestone tiers with automatic fee reduction (#1076).
     KeyMilestones(Address),
+    /// Investor lock-up expiry timestamp, keyed by `(wallet, key_id)`.
+    InvestorLockup(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3798,6 +3823,49 @@ fn read_lockup_duration_secs(env: &Env) -> Option<u64> {
     env.storage()
         .persistent()
         .get(&constants::storage::LOCKUP_DURATION_SECS)
+}
+
+fn read_investor_lockup(env: &Env, wallet: &Address, key_id: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::investor_lockup(wallet, key_id))
+}
+
+fn investor_lockup_status(env: &Env, wallet: &Address, key_id: &Address) -> (bool, u64) {
+    let Some(unlock_timestamp) = read_investor_lockup(env, wallet, key_id) else {
+        return (false, 0);
+    };
+    let now = env.ledger().timestamp();
+    if now >= unlock_timestamp {
+        (false, 0)
+    } else {
+        (true, unlock_timestamp - now)
+    }
+}
+
+fn enforce_investor_lockup(
+    env: &Env,
+    wallet: &Address,
+    key_id: &Address,
+) -> Result<(), ContractError> {
+    let storage_key = constants::storage::investor_lockup(wallet, key_id);
+    if let Some(unlock_timestamp) = read_investor_lockup(env, wallet, key_id) {
+        let released_at = env.ledger().timestamp();
+        if released_at < unlock_timestamp {
+            return Err(ContractError::LockupActive);
+        }
+        env.storage().persistent().remove(&storage_key);
+        env.events().publish(
+            events::lockup_released_topics(wallet, key_id),
+            events::LockupReleasedEvent {
+                wallet: wallet.clone(),
+                key_id: key_id.clone(),
+                unlock_timestamp,
+                released_at,
+            },
+        );
+    }
+    Ok(())
 }
 
 fn read_flash_loan_guard_ledgers(env: &Env) -> u32 {
@@ -7436,6 +7504,8 @@ impl CreatorKeysContract {
         if liquid_balance == 0 {
             return Err(ContractError::InsufficientBalance);
         }
+
+        enforce_investor_lockup(&env, &seller, &creator)?;
 
         // Enforce the anti-flash-trade lockup: once a lockup duration is
         // configured, a holder cannot sell until the configured time has
@@ -11592,6 +11662,11 @@ impl CreatorKeysContract {
                 Ok(cost)
             }
             SwapDirection::Sell => {
+                let (locked, _seconds_remaining) =
+                    Self::check_lockup(env.clone(), trader.clone(), creator.clone());
+                if locked {
+                    return Err(ContractError::LockupActive);
+                }
                 // batch_sell authorizes the seller once at its own frame, which
                 // avoids Soroban's one-`require_auth`-per-address-per-invocation
                 // limit that a loop of sell_key calls would trip on.
@@ -12355,6 +12430,70 @@ impl CreatorKeysContract {
         read_lockup_duration_secs(&env).unwrap_or(DEFAULT_LOCKUP_DURATION_SECS)
     }
 
+    /// Creates or replaces the investor lock-up for `(wallet, key_id)`.
+    ///
+    /// The wallet must authorize the call; an investment escrow can create the
+    /// lock-up as part of an investment transaction carrying the wallet's
+    /// authorization. The unlock timestamp is an absolute ledger timestamp.
+    pub fn create_lockup(
+        env: Env,
+        wallet: Address,
+        key_id: Address,
+        unlock_timestamp: u64,
+    ) -> Result<(), ContractError> {
+        wallet.require_auth();
+        let storage_key = constants::storage::investor_lockup(&wallet, &key_id);
+        env.storage()
+            .persistent()
+            .set(&storage_key, &unlock_timestamp);
+        extend_key_ttl_to_full_window(&env, &storage_key);
+        env.events().publish(
+            events::lockup_created_topics(&wallet, &key_id),
+            events::LockupCreatedEvent {
+                wallet,
+                key_id,
+                unlock_timestamp,
+            },
+        );
+        Ok(())
+    }
+
+    /// Returns whether the investor lock-up is active and its remaining seconds.
+    ///
+    /// The unlock timestamp is inclusive: at or after that timestamp the
+    /// lock-up is no longer active and `seconds_remaining` is zero.
+    pub fn check_lockup(env: Env, wallet: Address, key_id: Address) -> (bool, u64) {
+        investor_lockup_status(&env, &wallet, &key_id)
+    }
+
+    /// Immediately removes an investor lock-up as an admin emergency override.
+    pub fn emergency_unlock(
+        env: Env,
+        admin: Address,
+        wallet: Address,
+        key_id: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        let storage_key = constants::storage::investor_lockup(&wallet, &key_id);
+        let unlock_timestamp: u64 = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .ok_or(ContractError::LockupNotFound)?;
+        env.storage().persistent().remove(&storage_key);
+        env.events().publish(
+            events::lockup_released_topics(&wallet, &key_id),
+            events::LockupReleasedEvent {
+                wallet,
+                key_id,
+                unlock_timestamp,
+                released_at: env.ledger().timestamp(),
+            },
+        );
+        Ok(())
+    }
+
     pub fn set_flash_loan_guard_ledgers(
         env: Env,
         admin: Address,
@@ -12673,6 +12812,112 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Feature: key ownership handover with an acceptance window and timelock (#1098)
+    // =========================================================================
+
+    /// Proposes handing the management rights of `key_id` over to `new_owner`.
+    ///
+    /// Only the wallet that currently manages the key may propose (the
+    /// registered creator until a handover has executed), and `new_owner` must
+    /// differ from it. The proposal is live for
+    /// [`key_ownership_transfer::ACCEPTANCE_WINDOW_SECS`] (48h) and emits
+    /// [`events::TransferProposedEvent`], which is what the key's holders see
+    /// during the notification period.
+    ///
+    /// Returns the `proposal_id` to use with [`Self::accept_transfer`],
+    /// [`Self::execute_transfer`] and [`Self::cancel_transfer`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the key is not registered.
+    /// - [`ContractError::SelfTransfer`] if `new_owner` already manages the key.
+    /// - [`ContractError::TransferAlreadyPending`] if the key already has a
+    ///   live proposal (an expired, unaccepted one is replaced silently).
+    /// - [`ContractError::Overflow`] on timestamp arithmetic overflow.
+    pub fn propose_transfer(
+        env: Env,
+        key_id: Address,
+        new_owner: Address,
+    ) -> Result<u32, ContractError> {
+        key_ownership_transfer::propose_transfer(&env, &key_id, &new_owner)
+    }
+
+    /// Accepts ownership-transfer proposal `proposal_id` as the proposed new
+    /// owner.
+    ///
+    /// Restricted to `new_owner` and only valid strictly before the proposal's
+    /// 48h `expires_at`. Returns the timestamp at which
+    /// [`Self::execute_transfer`] becomes callable (24h later) and emits
+    /// [`events::TransferAcceptedEvent`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown.
+    /// - [`ContractError::TransferAlreadyAccepted`] on a second acceptance.
+    /// - [`ContractError::TransferWindowExpired`] once 48h have elapsed.
+    /// - [`ContractError::Overflow`] on timestamp arithmetic overflow.
+    pub fn accept_transfer(env: Env, proposal_id: u32) -> Result<u64, ContractError> {
+        key_ownership_transfer::accept_transfer(&env, proposal_id)
+    }
+
+    /// Finalises accepted ownership-transfer `proposal_id`, making `new_owner`
+    /// the wallet that manages `key_id`.
+    ///
+    /// Callable by anyone once the 24h timelock after acceptance has elapsed;
+    /// the proposal already carries the current owner's proposal and the new
+    /// owner's acceptance. Emits [`events::TransferExecutedEvent`] and deletes
+    /// the proposal.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown.
+    /// - [`ContractError::TransferNotAccepted`] if the new owner never accepted
+    ///   (also what an expired, unaccepted proposal reports).
+    /// - [`ContractError::TimelockNotElapsed`] before 24h have elapsed.
+    /// - [`ContractError::Unauthorized`] if the key's owner changed since the
+    ///   proposal was raised.
+    pub fn execute_transfer(env: Env, proposal_id: u32) -> Result<(), ContractError> {
+        key_ownership_transfer::execute_transfer(&env, proposal_id)
+    }
+
+    /// Cancels ownership-transfer `proposal_id` before it executes.
+    ///
+    /// Restricted to the wallet that currently manages the key — the proposer —
+    /// and allowed at any point before execution, including after the new owner
+    /// accepted.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown.
+    /// - [`ContractError::Unauthorized`] if the caller does not manage the key
+    ///   or is not the owner that raised the proposal.
+    pub fn cancel_transfer(env: Env, proposal_id: u32) -> Result<(), ContractError> {
+        key_ownership_transfer::cancel_transfer(&env, proposal_id)
+    }
+
+    /// Read-only view: the wallet that currently manages `key_id`.
+    ///
+    /// Returns `key_id` itself — the registered creator address — until an
+    /// ownership handover has been executed.
+    pub fn get_key_owner(env: Env, key_id: Address) -> Address {
+        key_ownership_transfer::get_key_owner(&env, &key_id)
+    }
+
+    /// Read-only view: the ownership-transfer proposal stored under
+    /// `proposal_id`.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown or the
+    ///   proposal has already been executed or cancelled.
+    pub fn get_transfer_proposal(
+        env: Env,
+        proposal_id: u32,
+    ) -> Result<key_ownership_transfer::OwnershipTransferProposal, ContractError> {
+        key_ownership_transfer::get_transfer_proposal(&env, proposal_id)
     }
 
     /// Withdraws `amount` from the protocol treasury to `recipient`.
@@ -15650,6 +15895,8 @@ impl CreatorKeysContract {
                 return Err(ContractError::InsufficientBalance);
             }
 
+            enforce_investor_lockup(&env, &seller, &creator)?;
+
             assert_flash_loan_guard(&env, &creator, &seller)?;
 
             // Anti-flash-trade lockup check
@@ -15696,6 +15943,7 @@ impl CreatorKeysContract {
             let (creator, quantity) = order;
             let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
             let supply_before = profile.supply;
+            enforce_investor_lockup(&env, &seller, &creator)?;
 
             let mut order_proceeds: i128 = 0;
             let mut i = 0u32;

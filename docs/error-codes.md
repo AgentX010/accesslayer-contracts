@@ -62,12 +62,40 @@ intentionally unassigned.
 | `107` | `WalletAlertLimitReached` | The wallet already holds the maximum number of active price alerts | Triggered in [`price_alerts::register_alert`](../creator-keys/src/price_alerts.rs) when the wallet has `MAX_ACTIVE_ALERTS_PER_WALLET` (10) active alerts across all keys. Alerts that have fired or been cancelled do not count. |
 | `108` | `KeyAlertLimitReached` | The key already has the maximum number of active price alerts | Triggered in [`price_alerts::register_alert`](../creator-keys/src/price_alerts.rs) when the key has `MAX_ACTIVE_ALERTS_PER_KEY` (16) active alerts from any wallets. |
 | `109` | `AlertNotFound` | No active price alert with that id belongs to the wallet | Triggered in [`price_alerts::cancel_alert`](../creator-keys/src/price_alerts.rs) when the id never existed, belongs to another wallet, or the alert has already fired or been cancelled. |
+| `110` | `AlreadyInitialized` | Protocol configuration has already been initialized | Triggered in [`initialize`](../creator-keys/src/lib.rs) when attempting to re-initialize an already-initialized contract. |
+| `111` | `BundleSizeExceeded` | A bundle contains too many items | Triggered by `bundle::buy_bundle` when the number of items exceeds `MAX_BUNDLE_ITEMS`. |
+| `112` | `BundleItemUnfilled` | A bundle item could not be filled completely | Triggered by `bundle::buy_bundle` when a requested item is partially filled. |
+| `113` | `StateRestoring` | The creator's archived state is being restored | Triggered when buying keys for a creator in the restoring lifecycle state. |
+| `114` | `InvalidLifecycleState` | The creator is in the wrong lifecycle state for the requested archive operation | Triggered by archive/restore lifecycle entrypoints when the creator state is incompatible. |
+| `115` | `AnnouncementPageSizeExceeded` | The requested announcement page exceeds the supported maximum size | Triggered when announcement pagination requests more records than the supported maximum. |
+| `116` | `AnnouncementRecordMissing` | An announcement index points to a record that is no longer available | Triggered when an announcement page references an absent record in stored pagination state. |
+| `117` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
+| `118` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
 
-**Backward compatibility for 107-109**: these price-alert codes (issue #1030)
-are appended after the previously highest code (`106`, `CapTooLow`). No existing
-variant was renumbered, reordered, or reused. `register_alert` reports an
-unregistered key with `NotRegistered` (2) and a non-positive target price with
-`NotPositiveAmount` (6).
+**Backward compatibility for 107-118**: these codes
+are appended after the previously highest code (`106`, `CapTooLow`). Codes
+`115` and `116` are reserved for announcement errors; investor lock-up errors
+use `117` and `118` to avoid collisions. No existing variant was renumbered,
+reordered, or reused. `register_alert` reports an unregistered key with
+`NotRegistered` (2) and a non-positive target price with `NotPositiveAmount`
+(6).
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `119` | `TransferProposalNotFound` | No ownership-transfer proposal has that id | Triggered in [`key_ownership_transfer::read_proposal`](../creator-keys/src/key_ownership_transfer.rs) when the proposal never existed or was already executed or cancelled. |
+| `120` | `TransferAlreadyPending` | The key already has a live ownership-transfer proposal | Triggered in [`key_ownership_transfer::propose_transfer`](../creator-keys/src/key_ownership_transfer.rs) when a second proposal is raised while one is still inside its 48h window or already accepted. An expired, never-accepted proposal is replaced instead of rejected. |
+| `121` | `TransferWindowExpired` | The proposal was not accepted within 48h | Triggered in [`key_ownership_transfer::accept_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `now >= expires_at` (`proposed_at + 172_800`). |
+| `122` | `TransferNotAccepted` | The proposal was executed before the new owner accepted | Triggered in [`key_ownership_transfer::execute_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `accepted_at` is `None`; this is also what an expired, unaccepted proposal reports. |
+| `123` | `TransferAlreadyAccepted` | The proposed new owner accepted the proposal twice | Triggered in [`key_ownership_transfer::accept_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `accepted_at` is already set. |
+
+**Backward compatibility for 119-123**: these codes are appended after the
+previously highest code (`118`, `LockupNotFound`). No existing variant
+was renumbered, reordered, or reused. The ownership-handover flow reuses existing
+codes where they already describe the failure: `NotRegistered` (2) for an
+unregistered key, `SelfTransfer` (26) for a handover to the wallet that already
+manages the key, `Unauthorized` (18) for a caller that is not the current owner,
+`TimelockNotElapsed` (74) for execution before the 24h timelock, and `Overflow`
+(3) on timestamp arithmetic.
 
 ---
 

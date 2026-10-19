@@ -138,5 +138,73 @@ Notes for indexers:
 - `direction` is the `AlertDirection` enum, encoded as a `u32`: `0` = `Above`,
   `1` = `Below`.
 
+### Referral Tier Upgrade Events (#1034)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `tier_upg` | `(Symbol("tier_upg"), referrer)` | `referrer`, `old_tier`, `new_tier`, `volume`, `reward_rate_bps` | `struct ReferralTierUpgraded` |
+
+Notes for indexers:
+
+- `tier_upg` is emitted when a referrer's cumulative referred trade volume crosses a tier threshold.
+- Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
+- `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
+
+### LP Reward Rate Update Events (#1032)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `lp_rate` | `(Symbol("lp_rate"), key_id)` | `key_id`, `old_rate_bps`, `new_rate_bps`, `updated_at` | `struct RewardRateUpdated` |
+
+Notes for indexers:
+
+- `lp_rate` is emitted by `set_reward_rate` when a creator updates the reward rate for their LP pool.
+- Topic index 1 is `key_id` (`Address`).
+- `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
+- `updated_at` is the ledger timestamp in seconds.
+
+### Supply Milestone Fee Reduction Events (#1076)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `ms_reach` | `(Symbol("ms_reach"), key_id)` | `key_id`, `tier`, `supply`, `new_fee_bps`, `ledger` | `struct MilestoneReachedEvent` |
+
+Notes for indexers:
+
+- `ms_reach` is emitted by `check_and_apply_milestone` (also invoked post-swap from buy/sell core paths) when a key's circulating supply newly reaches a milestone tier whose fee lowers the fee currently in effect.
+- Topic index 1 is `key_id` (`Address`).
+- `tier` is the 1-based index of the milestone tier reached; tiers are applied in ascending supply order and never roll back.
+- `supply` is the circulating supply after the trade that crossed the threshold.
+- `new_fee_bps` reports the new fee in basis points (`0..=10000`).
+- `ledger` is the ledger sequence number at the time of the reduction.
+
+### Key Ownership Handover Events (#1098)
+
+| Event Name | Issue Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- | :--- |
+| `own_prop` | `TransferProposed` | `(Symbol("own_prop"), key_id, new_owner)` | `proposal_id`, `key_id`, `current_owner`, `new_owner`, `proposed_at`, `expires_at`, `ledger` | `struct TransferProposedEvent` |
+| `own_acpt` | `TransferAccepted` | `(Symbol("own_acpt"), key_id, new_owner)` | `proposal_id`, `key_id`, `current_owner`, `new_owner`, `accepted_at`, `executable_at`, `ledger` | `struct TransferAcceptedEvent` |
+| `own_exec` | `TransferExecuted` | `(Symbol("own_exec"), key_id, new_owner)` | `proposal_id`, `key_id`, `previous_owner`, `new_owner`, `executed_at`, `ledger` | `struct TransferExecutedEvent` |
+
+Notes for indexers:
+
+- The issue names these events `TransferProposed`, `TransferAccepted` and
+  `TransferExecuted`; they use the contract's lowercase, `symbol_short!`
+  naming convention on-chain (`own_prop`, `own_acpt`, `own_exec`), so clients
+  should subscribe to the short names.
+- Topic index 1 is always `key_id`, topic index 2 is always `new_owner`, so a
+  wallet can filter on its own address to see every handover incoming to it.
+- `own_prop` doubles as the holder notification for the 48h acceptance window:
+  it carries `proposed_at` and `expires_at` (`proposed_at + 172_800`).
+- `own_acpt` starts the 24h execution timelock; `executable_at` is
+  `accepted_at + 86_400` and is the earliest timestamp `execute_transfer`
+  accepts.
+- `own_exec` is emitted only after the timelock elapsed, and reports
+  `previous_owner` (the wallet that managed the key until execution) beside
+  `new_owner`, which becomes the wallet reported by `get_key_owner`.
+- `cancel_transfer` deliberately emits no event: it only deletes the proposal,
+  so the `own_prop` for that id stops resolving in `get_transfer_proposal`.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+

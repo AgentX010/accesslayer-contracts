@@ -5,10 +5,10 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String, Vec,
 };
-pub mod quote_view_errors;
-pub mod vesting;
 pub mod bootstrapping;
 pub mod events;
+pub mod quote_view_errors;
+pub mod vesting;
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
@@ -22045,13 +22045,7 @@ pub fn create_bootstrap(
     duration_seconds: u64,
 ) -> Result<(), quote_view_errors::ContractError> {
     admin.require_auth();
-    bootstrapping::set_bootstrap_config(
-        &env,
-        &key_id,
-        start_price,
-        end_price,
-        duration_seconds,
-    );
+    bootstrapping::set_bootstrap_config(&env, &key_id, start_price, end_price, duration_seconds);
     Ok(())
 }
 

@@ -203,18 +203,17 @@ fn swaps_use_pre_trade_volume_and_record_success_once() {
     setup
         .client
         .buy_key(&setup.creator, &buyer, &1_000i128, &None);
-    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 1_000);
     let first_adjusted = fee_adjusted_events(&setup.env, &setup.creator);
     assert_eq!(first_adjusted.len(), 1);
     assert_eq!(first_adjusted.get(0).unwrap().new_fee_bps, 100);
     let first_fees = fee_collected_events(&setup.env);
     assert_eq!(first_fees.len(), 1);
     assert_eq!(first_fees.get(0).unwrap().fee, 15);
+    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 1_000);
 
     setup
         .client
         .buy_key(&setup.creator, &buyer, &1_000i128, &None);
-    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 2_000);
     let adjusted = fee_adjusted_events(&setup.env, &setup.creator);
     assert_eq!(adjusted.len(), 1);
     assert_eq!(adjusted.get(0).unwrap().previous_fee_bps, 100);
@@ -223,15 +222,16 @@ fn swaps_use_pre_trade_volume_and_record_success_once() {
     let fees = fee_collected_events(&setup.env);
     assert_eq!(fees.len(), 1);
     assert_eq!(fees.get(0).unwrap().fee, 10);
+    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 2_000);
     let mut ledger_info = setup.env.ledger().get();
     ledger_info.sequence_number += 1;
     ledger_info.timestamp += 300;
     setup.env.ledger().set(ledger_info);
     setup.client.sell_key(&setup.creator, &buyer, &None);
-    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 3_000);
     let fees = fee_collected_events(&setup.env);
     assert_eq!(fees.len(), 1);
     assert_eq!(fees.get(0).unwrap().fee, 7);
+    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 3_000);
 
     let failed_buyer = Address::generate(&setup.env);
     assert_eq!(

@@ -21428,8 +21428,6 @@ feat/liquidity-bootstrapping-1
 
 #[cfg(test)]
 mod test_announcements;
-main
-/// Admin sets up a liquidity bootstrapping phase for a new key launch.
 pub fn create_bootstrap(
     env: Env,
     admin: Address,

@@ -21426,19 +21426,10 @@ feat/liquidity-bootstrapping-1
         Ok(())
     }
 
-    /// Returns current bootstrap price or None if bootstrap period has ended.
-    pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
-        bootstrapping::get_bootstrap_price_internal(&env, &key_id)
-    }
-
 #[cfg(test)]
 mod test_announcements;
 main
-
-        /// Admin sets up a liquidity bootstrapping phase for a new key launch.
-    pub fn create_bootstrap(
-        env: Env,
-       /// Admin sets up a liquidity bootstrapping phase for a new key launch.
+/// Admin sets up a liquidity bootstrapping phase for a new key launch.
 pub fn create_bootstrap(
     env: Env,
     admin: Address,

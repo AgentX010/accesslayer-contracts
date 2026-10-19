@@ -1,8 +1,8 @@
-use soroban_sdk::{contracttype, Address, Env};
+
 use crate::events::{
-    BootstrapStartedEvent, BootstrapEndedEvent,
-    bootstrap_started_topics, bootstrap_ended_topics
+    bootstrap_ended_topics, bootstrap_started_topics, BootstrapEndedEvent, BootstrapStartedEvent,
 };
+use soroban_sdk::{contracttype, Address, Env};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,7 +33,10 @@ pub fn set_bootstrap_config(
         duration_seconds,
     };
 
-    env.storage().persistent().set(&BootstrapDataKey::Config(key_id.clone()), &config);
+    
+    env.storage()
+        .persistent()
+        .set(&BootstrapDataKey::Config(key_id.clone()), &config);
 
     env.events().publish(
         bootstrap_started_topics(key_id),
@@ -56,11 +59,15 @@ pub fn get_bootstrap_price_internal(env: &Env, key_id: &Address) -> Option<i128>
 
     let config: BootstrapConfig = env.storage().persistent().get(&storage_key).unwrap();
     let current_time = env.ledger().timestamp();
-    let expiration_time = config.start_time.checked_add(config.duration_seconds).unwrap_or(u64::MAX);
+    
+    let expiration_time = config
+        .start_time
+        .checked_add(config.duration_seconds)
+        .unwrap_or(u64::MAX);
 
     if current_time >= expiration_time {
         env.storage().persistent().remove(&storage_key);
-        
+
         env.events().publish(
             bootstrap_ended_topics(key_id),
             BootstrapEndedEvent {

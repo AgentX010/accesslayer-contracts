@@ -3505,88 +3505,9 @@ pub struct ReputationUpdatedEvent {
     pub ledger: u32,
 }
 
-/// Shared reputation-updated event topics tuple.
+ /// Helper function to generate event topics for reputation updates
 pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
-    (REPUTATION_UPDATED_EVENT_NAME, creator.c
-      main
-
-
-// Origin
-pub const TRADE_EVENT_NAME: Symbol = symbol_short!("trade");
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct TradeEvent {
-    pub key_id: Address,
-    pub buyer_or_seller: Address,
-    pub is_buy: bool,
-    pub key_amount: i128,
-    pub payment: i128,
-    pub supply: i128,
-    pub ledger: u32,
-}
-
-
-pub fn trade_topics(key_id: &Address) -> (Symbol, Address) {
-    (TRADE_EVENT_NAME, key_id.clone())
-}
-
-pub const BOOTSTRAP_STARTED_EVENT_NAME: Symbol = symbol_short!("boot_strt");
-pub const BOOTSTRAP_ENDED_EVENT_NAME: Symbol = symbol_short!("boot_end");
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct BootstrapStartedEvent {
-    pub key_id: Address,
-    pub start_price: i128,
-    pub end_price: i128,
-    pub start_time: u64,
-    pub duration_seconds: u64,
-    pub ledger: u32,
-}
-
-pub fn bootstrap_started_topics(key_id: &Address) -> (Symbol, Address) {
-    (BOOTSTRAP_STARTED_EVENT_NAME, key_id.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct BootstrapEndedEvent {
-    pub key_id: Address,
-    pub final_price: i128,
-    pub timestamp: u64,
-    pub ledger: u32,
-}
-
-pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
-    (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
-}
-
-// --- Creator announcements ---
-
-/// Event name for a creator announcement posted to key holders.
-pub const ANNOUNCEMENT_POSTED_EVENT_NAME: Symbol = symbol_short!("announce");
-
-/// Stable announcement payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(ANNOUNCEMENT_POSTED_EVENT_NAME, key_id, announcement_id)`
-/// - data: `AnnouncementPostedEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct AnnouncementPostedEvent {
-    /// Creator key whose holders the announcement targets.
-    pub key_id: Address,
-    /// Sequential identifier within this creator's announcement history.
-    pub announcement_id: u32,
-    /// Short announcement headline.
-    pub title: String,
-    /// IPFS content identifier for the complete announcement content.
-    pub content_hash: String,
-    /// Announcement category.
-    pub category: crate::AnnouncementCategory,
-    /// Ledger timestamp at which the announcement was posted.
-    pub posted_at: u64,
+    (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
 }
 
 /// Shared announcement event topics tuple.
@@ -3599,9 +3520,4 @@ pub fn announcement_posted_topics(
         key_id.clone(),
         announcement_id,
     )
-}
-
-/// Helper function to generate event topics for reputation updates
-pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
-    (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
 }

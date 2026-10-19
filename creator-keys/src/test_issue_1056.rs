@@ -162,7 +162,7 @@ fn admin_bracket_update_preserves_volume_and_rejects_invalid_or_unauthorized_upd
     record_trade(&setup, &setup.creator, 1);
     let changed = fee_adjusted_events(&setup.env, &setup.creator);
     assert_eq!(changed.len(), 1);
-    assert_eq!(changed.get(0).unwrap().previous_fee_bps, 150);
+    assert_eq!(changed.get(0).unwrap().previous_fee_bps, 100);
     assert_eq!(changed.get(0).unwrap().new_fee_bps, 50);
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 501);
 

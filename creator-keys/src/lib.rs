@@ -3978,6 +3978,9 @@ fn compute_sell_proceeds(env: &Env, creator: &Address, price: i128) -> Result<i1
     // proceeds are computed on the net amount to mirror the sell execution path.
     let trade_fee = compute_trade_fee(env, creator, price)?;
     let net_price = fee::checked_sub_i128(price, trade_fee).ok_or(ContractError::Overflow)?;
+    if read_effective_fee_config(env).is_none() {
+        return Ok(net_price);
+    }
     let (creator_fee, protocol_fee) =
         CreatorKeysContract::compute_fees_for_payment(env.clone(), net_price)?;
     let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;

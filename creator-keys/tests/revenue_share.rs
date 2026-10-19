@@ -100,7 +100,7 @@ fn test_distribute_revenue_success_and_remainder_reconciliation() {
 
     // Verify event
     let events = env.events().all();
-    let (_, data) = events
+    let (_, _, data) = events
         .iter()
         .rev()
         .find(|(_, topics, _)| {
@@ -160,7 +160,7 @@ fn test_distribute_filters_zero_balance_wallets() {
     let seller = Address::generate(&env);
     let quote = client.get_buy_quote(&creator);
     client.buy_key(&creator, &seller, &quote.total_amount, &None);
-    client.sell_keys(&creator, &seller, &1u32, &0i128);
+    client.sell_key(&creator, &seller, &None);
 
     // Verify seller is in holder registry but has 0 balance
     let registry = client.get_holder_registry(&creator);
@@ -214,7 +214,7 @@ fn test_post_snapshot_trades_do_not_affect_shares() {
     let dist_id = client.distribute_revenue(&creator, &1000i128);
 
     // Holder B transfers or sells their key after the snapshot
-    client.sell_keys(&creator, &holder_b, &1u32, &0i128);
+    client.sell_key(&creator, &holder_b, &None);
     assert_eq!(client.get_key_balance(&creator, &holder_b), 0);
 
     // Holder B's snapshotted share must remain unchanged
@@ -234,14 +234,14 @@ fn test_claim_credits_pending_balance_and_prevents_double_claim() {
     let dist_id = client.distribute_revenue(&creator, &1000i128);
 
     // Pending dividend balance before claim
-    let pending_before = client.get_pending_dividend(&creator, &holder_a);
+    let pending_before = client.get_claimable_dividend(&creator, &holder_a);
 
     // Claim share
     let claimed = client.claim_revenue_share(&dist_id, &holder_a);
     assert_eq!(claimed, 750);
 
     // Pending dividend balance should increase by claimed amount
-    let pending_after = client.get_pending_dividend(&creator, &holder_a);
+    let pending_after = client.get_claimable_dividend(&creator, &holder_a);
     assert_eq!(pending_after - pending_before, 750);
 
     // View should now reflect 0 claimable and 750 claimed
@@ -260,7 +260,7 @@ fn test_claim_credits_pending_balance_and_prevents_double_claim() {
 
     // Verify claim event
     let events = env.events().all();
-    let (_, data) = events
+    let (_, _, data) = events
         .iter()
         .rev()
         .find(|(_, topics, _)| {

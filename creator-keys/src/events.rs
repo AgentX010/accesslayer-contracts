@@ -4196,3 +4196,156 @@ pub fn announcement_posted_topics(
         announcement_id,
     )
 }
+
+// --- Key ownership handover (#1098) ---
+
+/// Event name for `TransferProposed`: the wallet managing a key proposed
+/// handing the key's management rights to a new wallet. Emitted alongside the
+/// 48h acceptance window, so it doubles as the holder notification.
+pub const TRANSFER_PROPOSED_EVENT_NAME: Symbol = symbol_short!("own_prop");
+
+/// Stable ownership-proposed event field order for downstream indexers.
+pub const TRANSFER_PROPOSED_EVENT_DATA_FIELDS: [&str; 7] = [
+    "proposal_id",
+    "key_id",
+    "current_owner",
+    "new_owner",
+    "proposed_at",
+    "expires_at",
+    "ledger",
+];
+
+/// Payload emitted when an ownership handover is proposed.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_PROPOSED_EVENT_NAME, key_id, new_owner)`
+/// - data: `TransferProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferProposedEvent {
+    /// Sequential id of the proposal; also its storage key.
+    pub proposal_id: u32,
+    /// Key whose management rights are being handed over.
+    pub key_id: Address,
+    /// Owner that raised the proposal.
+    pub current_owner: Address,
+    /// Wallet proposed to take over management of `key_id`.
+    pub new_owner: Address,
+    /// Ledger timestamp at which the proposal was raised.
+    pub proposed_at: u64,
+    /// `proposed_at + ACCEPTANCE_WINDOW_SECS`; acceptance is rejected from here.
+    pub expires_at: u64,
+    /// Ledger sequence number at the time of the proposal.
+    pub ledger: u32,
+}
+
+/// Shared ownership-proposed event topics tuple.
+pub fn transfer_proposed_topics(
+    key_id: &Address,
+    new_owner: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        TRANSFER_PROPOSED_EVENT_NAME,
+        key_id.clone(),
+        new_owner.clone(),
+    )
+}
+
+/// Event name for `TransferAccepted`: the proposed new owner accepted the
+/// ownership handover, which starts the 24h execution timelock.
+pub const TRANSFER_ACCEPTED_EVENT_NAME: Symbol = symbol_short!("own_acpt");
+
+/// Stable ownership-accepted event field order for downstream indexers.
+pub const TRANSFER_ACCEPTED_EVENT_DATA_FIELDS: [&str; 7] = [
+    "proposal_id",
+    "key_id",
+    "current_owner",
+    "new_owner",
+    "accepted_at",
+    "executable_at",
+    "ledger",
+];
+
+/// Payload emitted when the proposed new owner accepts a handover.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_ACCEPTED_EVENT_NAME, key_id, new_owner)`
+/// - data: `TransferAcceptedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferAcceptedEvent {
+    /// Sequential id of the accepted proposal.
+    pub proposal_id: u32,
+    /// Key whose management rights are being handed over.
+    pub key_id: Address,
+    /// Owner the key still has until the handover executes.
+    pub current_owner: Address,
+    /// Wallet that accepted the handover.
+    pub new_owner: Address,
+    /// Ledger timestamp at which the new owner accepted.
+    pub accepted_at: u64,
+    /// `accepted_at + EXECUTION_TIMELOCK_SECS`, the earliest execution time.
+    pub executable_at: u64,
+    /// Ledger sequence number at the time of acceptance.
+    pub ledger: u32,
+}
+
+/// Shared ownership-accepted event topics tuple.
+pub fn transfer_accepted_topics(
+    key_id: &Address,
+    new_owner: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        TRANSFER_ACCEPTED_EVENT_NAME,
+        key_id.clone(),
+        new_owner.clone(),
+    )
+}
+
+/// Event name for `TransferExecuted`: the accepted handover was finalised and
+/// `new_owner` is now the wallet managing the key.
+pub const TRANSFER_EXECUTED_EVENT_NAME: Symbol = symbol_short!("own_exec");
+
+/// Stable ownership-executed event field order for downstream indexers.
+pub const TRANSFER_EXECUTED_EVENT_DATA_FIELDS: [&str; 6] = [
+    "proposal_id",
+    "key_id",
+    "previous_owner",
+    "new_owner",
+    "executed_at",
+    "ledger",
+];
+
+/// Payload emitted when an accepted ownership handover executes.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_EXECUTED_EVENT_NAME, key_id, new_owner)`
+/// - data: `TransferExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferExecutedEvent {
+    /// Sequential id of the executed proposal.
+    pub proposal_id: u32,
+    /// Key whose management rights changed hands.
+    pub key_id: Address,
+    /// Wallet that managed the key before execution.
+    pub previous_owner: Address,
+    /// Wallet that manages the key after execution.
+    pub new_owner: Address,
+    /// Ledger timestamp at which the handover executed.
+    pub executed_at: u64,
+    /// Ledger sequence number at the time of execution.
+    pub ledger: u32,
+}
+
+/// Shared ownership-executed event topics tuple.
+pub fn transfer_executed_topics(
+    key_id: &Address,
+    new_owner: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        TRANSFER_EXECUTED_EVENT_NAME,
+        key_id.clone(),
+        new_owner.clone(),
+    )
+}

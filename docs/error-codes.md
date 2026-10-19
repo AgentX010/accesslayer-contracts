@@ -70,6 +70,23 @@ variant was renumbered, reordered, or reused. `register_alert` reports an
 unregistered key with `NotRegistered` (2) and a non-positive target price with
 `NotPositiveAmount` (6).
 
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `117` | `TransferProposalNotFound` | No ownership-transfer proposal has that id | Triggered in [`key_ownership_transfer::read_proposal`](../creator-keys/src/key_ownership_transfer.rs) when the proposal never existed or was already executed or cancelled. |
+| `118` | `TransferAlreadyPending` | The key already has a live ownership-transfer proposal | Triggered in [`key_ownership_transfer::propose_transfer`](../creator-keys/src/key_ownership_transfer.rs) when a second proposal is raised while one is still inside its 48h window or already accepted. An expired, never-accepted proposal is replaced instead of rejected. |
+| `119` | `TransferWindowExpired` | The proposal was not accepted within 48h | Triggered in [`key_ownership_transfer::accept_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `now >= expires_at` (`proposed_at + 172_800`). |
+| `120` | `TransferNotAccepted` | The proposal was executed before the new owner accepted | Triggered in [`key_ownership_transfer::execute_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `accepted_at` is `None`; this is also what an expired, unaccepted proposal reports. |
+| `121` | `TransferAlreadyAccepted` | The proposed new owner accepted the proposal twice | Triggered in [`key_ownership_transfer::accept_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `accepted_at` is already set. |
+
+**Backward compatibility for 117-121**: these codes are appended after the
+previously highest code (`116`, `AnnouncementRecordMissing`). No existing variant
+was renumbered, reordered, or reused. The ownership-handover flow reuses existing
+codes where they already describe the failure: `NotRegistered` (2) for an
+unregistered key, `SelfTransfer` (26) for a handover to the wallet that already
+manages the key, `Unauthorized` (18) for a caller that is not the current owner,
+`TimelockNotElapsed` (74) for execution before the 24h timelock, and `Overflow`
+(3) on timestamp arithmetic.
+
 ---
 
 ## `PollError` Reference (Governance Polls)

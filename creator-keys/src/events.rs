@@ -4196,3 +4196,84 @@ pub fn announcement_posted_topics(
         announcement_id,
     )
 }
+
+// --- Creator-funded revenue sharing (issue #1135) ---
+
+/// Event name for creator-funded revenue sharing distribution.
+pub const REVENUE_DISTRIBUTED_EVENT_NAME: Symbol = symbol_short!("rev_dist");
+
+/// Stable revenue distribution event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(REVENUE_DISTRIBUTED_EVENT_NAME, key_id, distribution_id)`
+/// - data: `RevenueDistributedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RevenueDistributedEvent {
+    pub key_id: Address,
+    pub distribution_id: u32,
+    pub amount: i128,
+    pub allocated_amount: i128,
+    pub remainder: i128,
+    pub total_eligible_keys: u32,
+    pub eligible_count: u32,
+}
+
+pub const REVENUE_DISTRIBUTED_DATA_FIELDS: [&str; 7] = [
+    "key_id",
+    "distribution_id",
+    "amount",
+    "allocated_amount",
+    "remainder",
+    "total_eligible_keys",
+    "eligible_count",
+];
+
+/// Shared revenue distributed event topics tuple.
+pub fn revenue_distributed_topics(
+    key_id: &Address,
+    distribution_id: u32,
+) -> (Symbol, Address, u32) {
+    (
+        REVENUE_DISTRIBUTED_EVENT_NAME,
+        key_id.clone(),
+        distribution_id,
+    )
+}
+
+/// Event name for creator-funded revenue share claim.
+pub const REVENUE_SHARE_CLAIMED_EVENT_NAME: Symbol = symbol_short!("rev_clm");
+
+/// Stable revenue share claim event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(REVENUE_SHARE_CLAIMED_EVENT_NAME, distribution_id, claimant)`
+/// - data: `RevenueShareClaimedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RevenueShareClaimedEvent {
+    pub distribution_id: u32,
+    pub key_id: Address,
+    pub claimant: Address,
+    pub amount: i128,
+}
+
+pub const REVENUE_SHARE_CLAIMED_DATA_FIELDS: [&str; 4] = [
+    "distribution_id",
+    "key_id",
+    "claimant",
+    "amount",
+];
+
+/// Shared revenue share claimed event topics tuple.
+pub fn revenue_share_claimed_topics(
+    distribution_id: u32,
+    claimant: &Address,
+) -> (Symbol, u32, Address) {
+    (
+        REVENUE_SHARE_CLAIMED_EVENT_NAME,
+        distribution_id,
+        claimant.clone(),
+    )
+}
+

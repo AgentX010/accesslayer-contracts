@@ -163,6 +163,21 @@ Notes for indexers:
 - `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
 - `updated_at` is the ledger timestamp in seconds.
 
+### Supply Milestone Fee Reduction Events (#1076)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `ms_reach` | `(Symbol("ms_reach"), key_id)` | `key_id`, `tier`, `supply`, `new_fee_bps`, `ledger` | `struct MilestoneReachedEvent` |
+
+Notes for indexers:
+
+- `ms_reach` is emitted by `check_and_apply_milestone` (also invoked post-swap from buy/sell core paths) when a key's circulating supply newly reaches a milestone tier whose fee lowers the fee currently in effect.
+- Topic index 1 is `key_id` (`Address`).
+- `tier` is the 1-based index of the milestone tier reached; tiers are applied in ascending supply order and never roll back.
+- `supply` is the circulating supply after the trade that crossed the threshold.
+- `new_fee_bps` reports the new fee in basis points (`0..=10000`).
+- `ledger` is the ledger sequence number at the time of the reduction.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
 

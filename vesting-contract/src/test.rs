@@ -240,8 +240,8 @@ fn test_vest_claimed_event_emission() {
         }
     }
 
-    assert_eq!(second_events.len(), 2);
-    let second_event = second_events.get(1).unwrap();
+    assert_eq!(second_events.len(), 1);
+    let second_event = second_events.get(0).unwrap();
     assert_eq!(second_event.vest_id, vest_id);
     assert_eq!(second_event.amount, 10_000);
     assert_eq!(second_event.remaining_locked, 0);

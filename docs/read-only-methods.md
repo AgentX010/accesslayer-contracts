@@ -336,6 +336,17 @@ Returns accrued creator fee balance for the creator's fee recipient after buy ex
 
 ---
 
+### `get_current_milestone(key_id: Address) → Result<(u32, u32), ContractError>`
+
+Returns the active graduated supply milestone tier and the fee currently in effect for `key_id` (#1076).
+
+- Returns `(tier, fee_bps)` where `tier` is the 1-based count of milestone tiers reached (`0` when none) and `fee_bps` is the fee in basis points currently in effect.
+- Tiers are applied in ascending supply order and the fee only ever moves downward, so a supply drop never raises the fee.
+- Returns `Err(ContractError::NotRegistered)` for unregistered keys.
+- Does not mutate state.
+
+---
+
 ### `is_protocol_config_initialized(env: Env) → bool`
 
 Returns `true` if a protocol fee configuration has been stored; `false` otherwise.

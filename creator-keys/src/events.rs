@@ -2833,6 +2833,55 @@ pub fn milestone_crossed_topics(key_id: &Address) -> (Symbol, Address) {
     (MILESTONE_CROSSED_EVENT_NAME, key_id.clone())
 }
 
+// --- Supply milestone fee reduction (#1076) ---
+
+/// Emitted when a key's circulating supply crosses a milestone threshold and
+/// the fee in effect is reduced.
+pub const MILESTONE_REACHED_EVENT_NAME: Symbol = symbol_short!("ms_reach");
+
+/// Event shape:
+/// - topics: `(MILESTONE_REACHED_EVENT_NAME, key_id)`
+/// - data: `MilestoneReachedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MilestoneReachedEvent {
+    /// The key whose supply crossed the milestone threshold.
+    pub key_id: Address,
+    /// 1-based index of the milestone tier that was reached.
+    pub tier: u32,
+    /// Circulating supply after the trade that crossed the threshold.
+    pub supply: u32,
+    /// New fee in basis points after the reduction.
+    pub new_fee_bps: u32,
+    /// Ledger sequence number at the time of the reduction.
+    pub ledger: u32,
+}
+
+pub fn milestone_reached_topics(key_id: &Address) -> (Symbol, Address) {
+    (MILESTONE_REACHED_EVENT_NAME, key_id.clone())
+}
+
+/// Publish a [`MilestoneReachedEvent`] for `key_id`.
+pub fn publish_milestone_reached(
+    env: &Env,
+    key_id: &Address,
+    tier: u32,
+    supply: u32,
+    new_fee_bps: u32,
+    ledger: u32,
+) {
+    env.events().publish(
+        milestone_reached_topics(key_id),
+        MilestoneReachedEvent {
+            key_id: key_id.clone(),
+            tier,
+            supply,
+            new_fee_bps,
+            ledger,
+        },
+    );
+}
+
 // --- Contract upgrade (#884) ---
 
 pub const UPGRADE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("upgraded");

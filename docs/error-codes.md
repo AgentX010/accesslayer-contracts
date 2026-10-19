@@ -98,14 +98,26 @@ manages the key, `Unauthorized` (18) for a caller that is not the current owner,
 
 | Code | Variant | Description | Trigger Condition |
 | :--- | :--- | :--- | :--- |
-| `124` | `SelfDelegation` | Attempted vote delegation to self | Triggered by `delegate_votes` when `holder == delegate_wallet`. |
-| `125` | `AlreadyDelegated` | Key already has an active vote delegation | Triggered by `delegate_votes` when the holder has already delegated voting weight for this key; revoke first to re-delegate. |
-| `126` | `NoDelegation` | No active vote delegation found to revoke | Triggered by `revoke_delegation` when the caller has no active delegation for this key. |
-| `127` | `CannotReDelegate` | Re-delegation or chained delegation is rejected | Triggered by `delegate_votes` when a delegate tries to delegate their weight or a delegator tries to receive delegation (delegation chain limited to 1 level). |
-| `128` | `NotAHolder` | Caller holds zero keys for this creator | Triggered by `delegate_votes` when the caller has no liquid keys for the specified creator key. |
+| `124` | `NoDeprecationProposed` | No notice-period deprecation has been proposed for the supplied key | Triggered when attempting to execute or query deprecation for a key without a proposed notice period. |
+| `125` | `DeprecationAlreadyProposed` | A notice-period deprecation has already been proposed for the supplied key | Triggered when proposing key deprecation on a key that already has an active deprecation notice. |
+| `126` | `DeprecationNoticePeriodActive` | Key deprecation execution was attempted before the notice period elapsed | Triggered in `execute_deprecation` when the current timestamp is earlier than the end of the notice period. |
+| `127` | `InvalidNoticePeriod` | The notice period in days is invalid (zero or above protocol ceiling) | Triggered when proposing deprecation with an out-of-range notice period. |
+| `128` | `DeprecationAlreadyExecuted` | The key's notice-period deprecation has already been executed | Triggered when attempting an operation on a key whose notice-period deprecation has already finalised. |
 
-**Backward compatibility for 124-128**: these five codes are appended after the
+**Backward compatibility for 124-128**: these codes are appended after the
 previously highest code (`123`, `TransferAlreadyAccepted`). No existing variant
+was renumbered, reordered, or reused.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `129` | `SelfDelegation` | Attempted vote delegation to self | Triggered by `delegate_votes` when `holder == delegate_wallet`. |
+| `130` | `AlreadyDelegated` | Key already has an active vote delegation | Triggered by `delegate_votes` when the holder has already delegated voting weight for this key; revoke first to re-delegate. |
+| `131` | `NoDelegation` | No active vote delegation found to revoke | Triggered by `revoke_delegation` when the caller has no active delegation for this key. |
+| `132` | `CannotReDelegate` | Re-delegation or chained delegation is rejected | Triggered by `delegate_votes` when a delegate tries to delegate their weight or a delegator tries to receive delegation (delegation chain limited to 1 level). |
+| `133` | `NotAHolder` | Caller holds zero keys for this creator | Triggered by `delegate_votes` when the caller has no liquid keys for the specified creator key. |
+
+**Backward compatibility for 129-133**: these five codes are appended after the
+previously highest code (`128`, `DeprecationAlreadyExecuted`). No existing variant
 was renumbered, reordered, or reused. Vote delegation (Issue #1116) reuses
 `PollError::Unauthorized` (32) in governance voting when a delegator attempts
 to vote directly.

@@ -2621,6 +2621,82 @@ pub fn keys_redeemed_topics(creator: &Address, holder: &Address) -> (Symbol, Add
     (KEYS_REDEEMED_EVENT_NAME, creator.clone(), holder.clone())
 }
 
+// --- Notice-period deprecation (retiring inactive creator keys) ---
+
+/// Event name emitted when an admin proposes to retire a key after a notice period.
+pub const DEPRECATION_PROPOSED_EVENT_NAME: Symbol = symbol_short!("dep_prop");
+
+/// Event name emitted when a proposed deprecation is executed.
+pub const DEPRECATION_EXECUTED_EVENT_NAME: Symbol = symbol_short!("dep_exec");
+
+/// Stable field order for the `dep_prop` event payload.
+pub const DEPRECATION_PROPOSED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "reason",
+    "notice_period_days",
+    "unwind_at_timestamp",
+    "ledger",
+];
+
+/// Stable field order for the `dep_exec` event payload.
+pub const DEPRECATION_EXECUTED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "total_positions_unwound",
+    "amount_distributed",
+    "unwind_price",
+    "ledger",
+];
+
+/// Stable deprecation-proposed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(DEPRECATION_PROPOSED_EVENT_NAME, key_id)`
+/// - data: `DeprecationProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationProposedEvent {
+    /// Key (creator address) proposed for retirement.
+    pub key_id: Address,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Notice period length in days.
+    pub notice_period_days: u32,
+    /// Unix timestamp at (or after) which the unwind may execute.
+    pub unwind_at_timestamp: u64,
+    /// Ledger sequence at which the proposal was recorded.
+    pub ledger: u32,
+}
+
+/// Shared deprecation-proposed event topics tuple.
+pub fn deprecation_proposed_topics(key_id: &Address) -> (Symbol, Address) {
+    (DEPRECATION_PROPOSED_EVENT_NAME, key_id.clone())
+}
+
+/// Stable deprecation-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(DEPRECATION_EXECUTED_EVENT_NAME, key_id)`
+/// - data: `DeprecationExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationExecutedEvent {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total number of key positions unwound across all holders.
+    pub total_positions_unwound: u32,
+    /// Total XLM distributed to holders during the unwind.
+    pub amount_distributed: i128,
+    /// Per-key price used for the unwind (last traded price).
+    pub unwind_price: i128,
+    /// Ledger sequence at which the unwind executed.
+    pub ledger: u32,
+}
+
+/// Shared deprecation-executed event topics tuple.
+pub fn deprecation_executed_topics(key_id: &Address) -> (Symbol, Address) {
+    (DEPRECATION_EXECUTED_EVENT_NAME, key_id.clone())
+}
+
 // ============================================================================
 // Early Unstake Penalty
 // ============================================================================

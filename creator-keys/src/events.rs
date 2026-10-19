@@ -78,7 +78,7 @@ pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
 //! ### Quote-Related Event Field Semantics
 //!
 //! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
-//! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
+/// - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
 use crate::{
     constants, extend_key_ttl_to_full_window, read_creator_supply, read_registered_creator_profile,

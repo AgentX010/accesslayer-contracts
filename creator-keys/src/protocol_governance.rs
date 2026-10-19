@@ -43,15 +43,15 @@ pub struct ProtocolProposal {
 #[derive(Clone)]
 #[contracttype]
 pub enum GovernanceKey {
-    Config,
-    NextId,
-    Proposal(u32),
-    Weight(u32, Address),
-    Voted(u32, Address),
+    ProtocolGovConfig,
+    ProtocolGovNextId,
+    ProtocolGovProposal(u32),
+    ProtocolGovWeight(u32, Address),
+    ProtocolGovVoted(u32, Address),
 }
 
 fn read_proposal(env: &Env, id: u32) -> Result<ProtocolProposal, ContractError> {
-    let key = GovernanceKey::Proposal(id);
+    let key = GovernanceKey::ProtocolGovProposal(id);
     let proposal = env
         .storage()
         .persistent()
@@ -77,17 +77,21 @@ impl CreatorKeysContract {
         if minimum_balance == 0 {
             return Err(ContractError::NotPositiveAmount);
         }
-        if env.storage().persistent().has(&GovernanceKey::Config) {
+        if env
+            .storage()
+            .persistent()
+            .has(&GovernanceKey::ProtocolGovConfig)
+        {
             return Err(ContractError::AlreadyInitialized);
         }
         env.storage().persistent().set(
-            &GovernanceKey::Config,
+            &GovernanceKey::ProtocolGovConfig,
             &GovernanceConfig {
                 key_id,
                 minimum_balance,
             },
         );
-        extend_key_ttl_to_full_window(&env, &GovernanceKey::Config);
+        extend_key_ttl_to_full_window(&env, &GovernanceKey::ProtocolGovConfig);
         Ok(())
     }
 
@@ -102,9 +106,9 @@ impl CreatorKeysContract {
         let config: GovernanceConfig = env
             .storage()
             .persistent()
-            .get(&GovernanceKey::Config)
+            .get(&GovernanceKey::ProtocolGovConfig)
             .ok_or(ContractError::Unauthorized)?;
-        extend_key_ttl_to_full_window(&env, &GovernanceKey::Config);
+        extend_key_ttl_to_full_window(&env, &GovernanceKey::ProtocolGovConfig);
         if Self::get_key_balance(env.clone(), config.key_id.clone(), proposer.clone())
             < config.minimum_balance
         {
@@ -128,7 +132,7 @@ impl CreatorKeysContract {
         let id: u32 = env
             .storage()
             .persistent()
-            .get(&GovernanceKey::NextId)
+            .get(&GovernanceKey::ProtocolGovNextId)
             .unwrap_or(0);
         let next_id = id.checked_add(1).ok_or(ContractError::Overflow)?;
         let voting_ends_at = env
@@ -141,7 +145,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
         for holder in holders.iter() {
             let balance = Self::get_key_balance(env.clone(), config.key_id.clone(), holder.clone());
-            let key = GovernanceKey::Weight(id, holder);
+            let key = GovernanceKey::ProtocolGovWeight(id, holder);
             env.storage().persistent().set(&key, &balance);
             extend_key_ttl_to_full_window(&env, &key);
         }
@@ -159,13 +163,13 @@ impl CreatorKeysContract {
             votes_against: 0,
             executed: false,
         };
-        let key = GovernanceKey::Proposal(id);
+        let key = GovernanceKey::ProtocolGovProposal(id);
         env.storage().persistent().set(&key, &proposal);
         extend_key_ttl_to_full_window(&env, &key);
         env.storage()
             .persistent()
-            .set(&GovernanceKey::NextId, &next_id);
-        extend_key_ttl_to_full_window(&env, &GovernanceKey::NextId);
+            .set(&GovernanceKey::ProtocolGovNextId, &next_id);
+        extend_key_ttl_to_full_window(&env, &GovernanceKey::ProtocolGovNextId);
         env.events()
             .publish((symbol_short!("gov_new"), proposer), proposal);
         Ok(id)
@@ -182,11 +186,11 @@ impl CreatorKeysContract {
         if env.ledger().timestamp() >= proposal.voting_ends_at || proposal.executed {
             return Err(ContractError::DeadlinePassed);
         }
-        let voted = GovernanceKey::Voted(proposal_id, voter.clone());
+        let voted = GovernanceKey::ProtocolGovVoted(proposal_id, voter.clone());
         if env.storage().persistent().has(&voted) {
             return Err(ContractError::AlreadyApproved);
         }
-        let weight_key = GovernanceKey::Weight(proposal_id, voter.clone());
+        let weight_key = GovernanceKey::ProtocolGovWeight(proposal_id, voter.clone());
         let weight: u32 = env.storage().persistent().get(&weight_key).unwrap_or(0);
         if weight == 0 {
             return Err(ContractError::InsufficientBalance);
@@ -207,7 +211,7 @@ impl CreatorKeysContract {
         extend_key_ttl_to_full_window(&env, &voted);
         env.storage()
             .persistent()
-            .set(&GovernanceKey::Proposal(proposal_id), &proposal);
+            .set(&GovernanceKey::ProtocolGovProposal(proposal_id), &proposal);
         env.events().publish(
             (symbol_short!("gov_vote"), proposal_id, voter),
             (support, weight),
@@ -245,7 +249,7 @@ impl CreatorKeysContract {
         proposal.executed = true;
         env.storage()
             .persistent()
-            .set(&GovernanceKey::Proposal(proposal_id), &proposal);
+            .set(&GovernanceKey::ProtocolGovProposal(proposal_id), &proposal);
         env.events()
             .publish((symbol_short!("gov_exec"), proposal_id), proposal);
         Ok(())

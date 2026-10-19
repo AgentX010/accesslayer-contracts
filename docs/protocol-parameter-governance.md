@@ -39,6 +39,11 @@ error code is changed. Entries receive the standard full TTL window. Restore
 archived governance entries before resuming governance; do not treat archived
 configuration as a fresh deployment.
 
+All variants use a `ProtocolGov` prefix: a Rust enum's type name is not part
+of the encoded storage key. Regression tests compare the XDR encoding against
+the older proposal and leaderboard keys and verify that leaderboard
+configuration survives governance operations.
+
 Events use the following topic and payload schemas:
 
 | Meaning | Topics | Data |

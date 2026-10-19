@@ -6,14 +6,28 @@ use contract_test_env::{
 use creator_keys::{
     constants,
     protocol_governance::{
-        ProtocolParameter, ProtocolProposal, EXECUTION_DELAY_SECONDS, VOTING_SECONDS,
+        GovernanceKey, ProtocolParameter, ProtocolProposal, EXECUTION_DELAY_SECONDS, VOTING_SECONDS,
     },
-    ContractError, CreatorProfile,
+    ContractError, CreatorProfile, LeaderboardConfig, LeaderboardKey,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, IntoVal, String, Symbol, Vec,
+    xdr::ToXdr,
+    Address, Env, IntoVal, String, Symbol, Vec,
 };
+
+#[test]
+fn storage_keys_do_not_alias_existing_governance_or_leaderboard_keys() {
+    let env = Env::default();
+    assert_ne!(
+        GovernanceKey::ProtocolGovConfig.to_xdr(&env),
+        LeaderboardKey::Config.to_xdr(&env)
+    );
+    assert_ne!(
+        GovernanceKey::ProtocolGovProposal(0).to_xdr(&env),
+        creator_keys::acl_dividend_twap_gov::GovDataKey::Proposal(0).to_xdr(&env)
+    );
+}
 
 #[test]
 fn threshold_snapshot_quorum_timelock_and_execution() {
@@ -25,6 +39,13 @@ fn threshold_snapshot_quorum_timelock_and_execution() {
     let bob = Address::generate(&env);
     let whale = Address::generate(&env);
     env.as_contract(&contract, || {
+        env.storage().persistent().set(
+            &LeaderboardKey::Config,
+            &LeaderboardConfig {
+                top_n: 5,
+                retention_ledgers: 100,
+            },
+        );
         let key = constants::storage::creator(&creator);
         let mut profile: CreatorProfile = env.storage().persistent().get(&key).unwrap();
         profile.supply = 100;
@@ -136,5 +157,12 @@ fn threshold_snapshot_quorum_timelock_and_execution() {
                 .get::<_, i128>(&constants::storage::KEY_PRICE),
             Some(2_000)
         );
+        let leaderboard: LeaderboardConfig = env
+            .storage()
+            .persistent()
+            .get(&LeaderboardKey::Config)
+            .unwrap();
+        assert_eq!(leaderboard.top_n, 5);
+        assert_eq!(leaderboard.retention_ledgers, 100);
     });
 }

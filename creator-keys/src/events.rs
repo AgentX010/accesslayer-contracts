@@ -140,6 +140,49 @@ pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Ad
     (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }
 
+/// Event name for creating an investor-specific lock-up.
+pub const LOCKUP_CREATED_EVENT_NAME: Symbol = symbol_short!("lck_crt");
+
+/// Investor lock-up creation payload.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_CREATED_EVENT_NAME, wallet, key_id)`
+/// - data: `LockupCreatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupCreatedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub unlock_timestamp: u64,
+}
+
+/// Shared investor lock-up creation event topics.
+pub fn lockup_created_topics(wallet: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_CREATED_EVENT_NAME, wallet.clone(), key_id.clone())
+}
+
+/// Event name for releasing an investor-specific lock-up.
+pub const LOCKUP_RELEASED_EVENT_NAME: Symbol = symbol_short!("lck_rel");
+
+/// Investor lock-up release payload.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_RELEASED_EVENT_NAME, wallet, key_id)`
+/// - data: `LockupReleasedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupReleasedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub unlock_timestamp: u64,
+    pub released_at: u64,
+}
+
+/// Shared investor lock-up release event topics.
+pub fn lockup_released_topics(wallet: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_RELEASED_EVENT_NAME, wallet.clone(), key_id.clone())
+}
+
 /// Event name for quorum threshold update.
 pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
 

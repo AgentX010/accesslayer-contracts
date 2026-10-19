@@ -72,8 +72,11 @@ pub enum DataKey {
 | ----- | ----------- | -------------- | --------------- |
 | Protocol fee split (`creator_bps`, `protocol_bps`) | `DataKey::FeeConfig` (`constants::storage::FEE_CONFIG`) | `get_fee_config`, `get_protocol_fee_view`, `get_creator_fee_bps`, `get_creator_treasury_share`, quote methods through shared readers | `set_fee_config` (admin-auth only) |
 | Protocol fee recipient | `DataKey::ProtocolFeeRecipient` (`constants::storage::PROTOCOL_FEE_RECIPIENT`) | `get_protocol_fee_recipient` | `set_protocol_fee_recipient` (admin-auth only) |
+| Graduated milestone fee reduction (#1076) | `DataKey::KeyMilestones(Address)` (`constants::storage::key_milestones`) | `get_current_milestone`, `check_and_apply_milestone` | `set_milestones` (admin-auth only) writes the configured tiers; `check_and_apply_milestone` writes the applied tier only when a newly reached tier lowers the fee |
 
 `set_fee_config` uses the shared `fee::assert_valid_fee_bps` guard to keep key writes aligned with the current constants (`BPS_MAX = 10_000`, `PROTOCOL_BPS_MAX = 5_000`) before persisting the config.
+
+**Storage layout / backward compatibility**: `DataKey::KeyMilestones(Address)` is an additive `DataKey` variant appended at the end, so all existing variant discriminants are unchanged. No existing key is read or modified, and no migration is required in either direction.
 
 ### Price Alert Storage-Key Notes
 

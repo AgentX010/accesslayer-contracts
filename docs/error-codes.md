@@ -67,14 +67,18 @@ intentionally unassigned.
 | `112` | `BundleItemUnfilled` | A bundle item could not be filled completely | Triggered by `bundle::buy_bundle` when a requested item is partially filled. |
 | `113` | `StateRestoring` | The creator's archived state is being restored | Triggered when buying keys for a creator in the restoring lifecycle state. |
 | `114` | `InvalidLifecycleState` | The creator is in the wrong lifecycle state for the requested archive operation | Triggered by archive/restore lifecycle entrypoints when the creator state is incompatible. |
-| `115` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
-| `116` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
+| `115` | `AnnouncementPageSizeExceeded` | The requested announcement page exceeds the supported maximum size | Triggered when announcement pagination requests more records than the supported maximum. |
+| `116` | `AnnouncementRecordMissing` | An announcement index points to a record that is no longer available | Triggered when an announcement page references an absent record in stored pagination state. |
+| `117` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
+| `118` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
 
-**Backward compatibility for 107-116**: these codes
-are appended after the previously highest code (`106`, `CapTooLow`). No existing
-variant was renumbered, reordered, or reused. `register_alert` reports an
-unregistered key with `NotRegistered` (2) and a non-positive target price with
-`NotPositiveAmount` (6).
+**Backward compatibility for 107-118**: these codes
+are appended after the previously highest code (`106`, `CapTooLow`). Codes
+`115` and `116` are reserved for announcement errors; investor lock-up errors
+use `117` and `118` to avoid collisions. No existing variant was renumbered,
+reordered, or reused. `register_alert` reports an unregistered key with
+`NotRegistered` (2) and a non-positive target price with `NotPositiveAmount`
+(6).
 
 ---
 

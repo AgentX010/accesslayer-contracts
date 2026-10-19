@@ -57,6 +57,30 @@ Transfers the protocol admin role to a new address.
 - **Auth**: `admin.require_auth()`
 - **No-op**: Returns without writing if the new admin matches the stored admin.
 
+### `set_milestones(admin: Address, key_id: Address, milestones: Vec<MilestoneTier>) -> Result<(), ContractError>`
+
+Configures the graduated supply milestone tiers for a key (intended at key creation).
+
+- **Auth**: `admin.require_auth()` — caller must be the stored protocol admin.
+- **Constraints**: `key_id` must be a registered key; `milestones` must contain 1-5 tiers in strictly ascending supply order; each `fee_bps` must not exceed 10,000.
+- **Behavior**: Stores the milestone config with no tier applied yet. Tiers are applied in ascending supply order as `check_and_apply_milestone` is invoked post-swap.
+
+### `check_and_apply_milestone(key_id: Address) -> Result<(u32, u32), ContractError>`
+
+Re-evaluates the active milestone tier for a key after a supply change (intended to be called post-swap).
+
+- **Auth**: Open (no authorization required).
+- **Behavior**: Applies the highest newly reached tier whose fee lowers the fee currently in effect. The fee only ever moves downward; a supply drop below a milestone never regresses to a higher fee.
+- **Returns**: `(tier, fee_bps)` — the 1-based count of tiers reached and the fee currently in effect.
+- **Emits**: `MilestoneReached` when a newly reached tier lowers the fee.
+
+### `get_current_milestone(key_id: Address) -> Result<(u32, u32), ContractError>`
+
+Read-only view returning the active milestone tier and fee for a key.
+
+- **Auth**: Open (no authorization required).
+- **Returns**: `(tier, fee_bps)` — tier is `0` when no milestone has been reached.
+
 ---
 
 ## Creator-only functions
@@ -209,5 +233,8 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `set_key_price` | Admin | Yes |
 | `set_treasury_address` | Admin | Yes |
 | `set_protocol_admin` | Admin | Yes |
+| `set_milestones` | Admin | Yes |
+| `check_and_apply_milestone` | Open | Yes |
+| `get_current_milestone` | Open | No |
 | All `get_*` / `is_*` methods | Open | No |
 | `compute_fees_for_payment` | Open | No |

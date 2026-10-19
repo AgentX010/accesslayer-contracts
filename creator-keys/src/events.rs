@@ -74,10 +74,10 @@ pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
 //!   ledger `Option<u32>`), `ttl_ext` (new live-until ledger `u32`),
 //!   `gpause_on` / `gpause_of` (ledger `u32`), `poll_new` (expiry ledger) and
 //!   `poll_vote` (`(option_index, weight)`).
-//!
-//! ### Quote-Related Event Field Semantics
-//!
-//! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
+///
+/// ### Quote-Related Event Field Semantics
+///
+/// - `supply`: Number of keys in circulation after the trade (for buy/sell events)
 /// - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
 use crate::{

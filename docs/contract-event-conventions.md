@@ -178,6 +178,21 @@ Notes for indexers:
 - `new_fee_bps` reports the new fee in basis points (`0..=10000`).
 - `ledger` is the ledger sequence number at the time of the reduction.
 
+### Key Liquidity Depth Events (#1133)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `depth_upd` | `(Symbol("depth_upd"), key_id)` | `key_id`, `price`, `amount`, `side`, `volume` | `struct DepthUpdated` |
+
+Notes for indexers:
+
+- `depth_upd` is emitted on each order placement (`record_order`) and cancellation (`cancel_order_depth`) when order book liquidity depth changes.
+- Topic index 1 is `key_id` (`Address`).
+- `price` is the affected price level (`i128`).
+- `amount` is the order volume added or cancelled (`i128`).
+- `side` is the order book side (`OrderSide::Buy` = 0, `OrderSide::Sell` = 1).
+- `volume` is the remaining volume at this specific price level after the update.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
 

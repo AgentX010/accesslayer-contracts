@@ -500,6 +500,23 @@ Returns the current reward rate and the timestamp at which it was last set for `
 
 ---
 
+## Liquidity depth read methods (#1133)
+
+### `get_depth(key_id: Address, levels: u32) → LiquidityDepth`
+
+Returns the top `levels` bid and ask price levels with individual and cumulative volume for `key_id`.
+
+- `bids`: Sorted descending (highest bid price first).
+- `asks`: Sorted ascending (lowest ask price first).
+- `cumulative_volume`: Monotonically increasing sum of volume from the top of the book down to that level.
+- When `levels == 0` or no depth exists for `key_id`, returns empty vectors for both bids and asks.
+
+### `get_price_level_volume(key_id: Address, price: i128, side: OrderSide) → i128`
+
+Returns the active volume at a specific price level for `key_id` and `side`. Returns `0` if no volume exists at that level.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.

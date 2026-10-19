@@ -204,21 +204,25 @@ fn swaps_use_pre_trade_volume_and_record_success_once() {
         .client
         .buy_key(&setup.creator, &buyer, &1_000i128, &None);
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 1_000);
+    let first_adjusted = fee_adjusted_events(&setup.env, &setup.creator);
+    assert_eq!(first_adjusted.len(), 1);
+    assert_eq!(first_adjusted.get(0).unwrap().new_fee_bps, 100);
+    let first_fees = fee_collected_events(&setup.env);
+    assert_eq!(first_fees.len(), 1);
+    assert_eq!(first_fees.get(0).unwrap().fee, 15);
 
     setup
         .client
         .buy_key(&setup.creator, &buyer, &1_000i128, &None);
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 2_000);
     let adjusted = fee_adjusted_events(&setup.env, &setup.creator);
-    assert_eq!(adjusted.len(), 2);
-    assert_eq!(adjusted.get(0).unwrap().new_fee_bps, 100);
-    assert_eq!(adjusted.get(1).unwrap().previous_fee_bps, 100);
-    assert_eq!(adjusted.get(1).unwrap().new_fee_bps, 75);
+    assert_eq!(adjusted.len(), 1);
+    assert_eq!(adjusted.get(0).unwrap().previous_fee_bps, 100);
+    assert_eq!(adjusted.get(0).unwrap().new_fee_bps, 75);
 
     let fees = fee_collected_events(&setup.env);
-    assert_eq!(fees.len(), 2);
-    assert_eq!(fees.get(0).unwrap().fee, 15);
-    assert_eq!(fees.get(1).unwrap().fee, 10);
+    assert_eq!(fees.len(), 1);
+    assert_eq!(fees.get(0).unwrap().fee, 10);
     let mut ledger_info = setup.env.ledger().get();
     ledger_info.sequence_number += 1;
     ledger_info.timestamp += 300;
@@ -226,8 +230,8 @@ fn swaps_use_pre_trade_volume_and_record_success_once() {
     setup.client.sell_key(&setup.creator, &buyer, &None);
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 3_000);
     let fees = fee_collected_events(&setup.env);
-    assert_eq!(fees.len(), 3);
-    assert_eq!(fees.get(2).unwrap().fee, 7);
+    assert_eq!(fees.len(), 1);
+    assert_eq!(fees.get(0).unwrap().fee, 7);
 
     let failed_buyer = Address::generate(&setup.env);
     assert_eq!(
@@ -252,7 +256,7 @@ fn fee_adjusted_emits_once_for_bracket_crossings_and_expiry() {
     assert_eq!(first.get(0).unwrap().timestamp, START_TIMESTAMP);
 
     record_trade(&setup, &setup.creator, 50);
-    assert_eq!(fee_adjusted_events(&setup.env, &setup.creator).len(), 1);
+    assert_eq!(fee_adjusted_events(&setup.env, &setup.creator).len(), 0);
 
     setup
         .env
@@ -261,10 +265,10 @@ fn fee_adjusted_emits_once_for_bracket_crossings_and_expiry() {
     assert_eq!(setup.client.get_current_fee_bps(&setup.creator), 150);
     record_trade(&setup, &setup.creator, 10);
     let events = fee_adjusted_events(&setup.env, &setup.creator);
-    assert_eq!(events.len(), 2);
-    assert_eq!(events.get(1).unwrap().previous_fee_bps, 100);
-    assert_eq!(events.get(1).unwrap().new_fee_bps, 150);
-    assert_eq!(events.get(1).unwrap().rolling_volume, 0);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events.get(0).unwrap().previous_fee_bps, 100);
+    assert_eq!(events.get(0).unwrap().new_fee_bps, 150);
+    assert_eq!(events.get(0).unwrap().rolling_volume, 0);
 }
 
 #[test]

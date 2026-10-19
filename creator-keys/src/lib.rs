@@ -21217,13 +21217,6 @@ mod test_issue_1000;
 mod test_proxy;
 
 /// Admin sets up a liquidity bootstrapping phase for a new key launch.
-    pub fn create_bootstrap(
-        env: Env,
-        admin: Address,
-        key_id: Address,
-        start_price: i128,
-        end_price: i128,
-        duration_seconds: u64,
     ) -> Result<(), quote_view_errors::ContractError> {
         admin.require_auth();
         bootstrapping::set_bootstrap_config(&env, &key_id, start_price, end_price, duration_seconds);

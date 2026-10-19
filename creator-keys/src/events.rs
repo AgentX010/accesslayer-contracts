@@ -1,6 +1,11 @@
-// feat/liquidity-bootstrapping-1
-use soroban_sdk::{contracttype, symbol_short, Address, Symbol}
-//! Centralized event names and helpers for consistent event emission.
+ //! Centralized event names and helpers for consistent event emission.
+//!
+//! This module provides a single source of truth for event names used throughout
+//! the contract, reducing string duplication and ensuring consistency across
+//! event emission paths.
+//!
+//! ### Event Schema Stability
+use soroban_sdk::{contracttype, symbol_short, Address, Symbol};
 //!
 //! This module provides a single source of truth for event names used throughout
 //! the contract, reducing string duplication and ensuring consistency across

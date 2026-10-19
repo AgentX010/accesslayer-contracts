@@ -233,6 +233,10 @@ pub enum ContractError {
     AnnouncementPageSizeExceeded = 115,
     /// An announcement index points to a record that is no longer available.
     AnnouncementRecordMissing = 116,
+    /// The wallet's keys are still inside an investor lock-up window.
+    LockupActive = 117,
+    /// No investor lock-up exists for the supplied wallet and key.
+    LockupNotFound = 118,
 }
 
 impl ContractError {
@@ -850,6 +854,10 @@ pub mod constants {
 
         pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
             DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
+        }
+
+        pub fn investor_lockup(wallet: &Address, key_id: &Address) -> DataKey {
+            DataKey::InvestorLockup(wallet.clone(), key_id.clone())
         }
 
         pub fn max_keys_per_wallet(creator: &Address) -> DataKey {
@@ -2092,6 +2100,8 @@ pub enum DataKey {
     ArchiveManifest(Address),
     /// Per-key graduated supply milestone tiers with automatic fee reduction (#1076).
     KeyMilestones(Address),
+    /// Investor lock-up expiry timestamp, keyed by `(wallet, key_id)`.
+    InvestorLockup(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3793,6 +3803,49 @@ fn read_lockup_duration_secs(env: &Env) -> Option<u64> {
     env.storage()
         .persistent()
         .get(&constants::storage::LOCKUP_DURATION_SECS)
+}
+
+fn read_investor_lockup(env: &Env, wallet: &Address, key_id: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::investor_lockup(wallet, key_id))
+}
+
+fn investor_lockup_status(env: &Env, wallet: &Address, key_id: &Address) -> (bool, u64) {
+    let Some(unlock_timestamp) = read_investor_lockup(env, wallet, key_id) else {
+        return (false, 0);
+    };
+    let now = env.ledger().timestamp();
+    if now >= unlock_timestamp {
+        (false, 0)
+    } else {
+        (true, unlock_timestamp - now)
+    }
+}
+
+fn enforce_investor_lockup(
+    env: &Env,
+    wallet: &Address,
+    key_id: &Address,
+) -> Result<(), ContractError> {
+    let storage_key = constants::storage::investor_lockup(wallet, key_id);
+    if let Some(unlock_timestamp) = read_investor_lockup(env, wallet, key_id) {
+        let released_at = env.ledger().timestamp();
+        if released_at < unlock_timestamp {
+            return Err(ContractError::LockupActive);
+        }
+        env.storage().persistent().remove(&storage_key);
+        env.events().publish(
+            events::lockup_released_topics(wallet, key_id),
+            events::LockupReleasedEvent {
+                wallet: wallet.clone(),
+                key_id: key_id.clone(),
+                unlock_timestamp,
+                released_at,
+            },
+        );
+    }
+    Ok(())
 }
 
 fn read_flash_loan_guard_ledgers(env: &Env) -> u32 {
@@ -7431,6 +7484,8 @@ impl CreatorKeysContract {
         if liquid_balance == 0 {
             return Err(ContractError::InsufficientBalance);
         }
+
+        enforce_investor_lockup(&env, &seller, &creator)?;
 
         // Enforce the anti-flash-trade lockup: once a lockup duration is
         // configured, a holder cannot sell until the configured time has
@@ -11577,6 +11632,11 @@ impl CreatorKeysContract {
                 Ok(cost)
             }
             SwapDirection::Sell => {
+                let (locked, _seconds_remaining) =
+                    Self::check_lockup(env.clone(), trader.clone(), creator.clone());
+                if locked {
+                    return Err(ContractError::LockupActive);
+                }
                 // batch_sell authorizes the seller once at its own frame, which
                 // avoids Soroban's one-`require_auth`-per-address-per-invocation
                 // limit that a loop of sell_key calls would trip on.
@@ -12338,6 +12398,70 @@ impl CreatorKeysContract {
     /// has been called.
     pub fn get_lockup_duration(env: Env) -> u64 {
         read_lockup_duration_secs(&env).unwrap_or(DEFAULT_LOCKUP_DURATION_SECS)
+    }
+
+    /// Creates or replaces the investor lock-up for `(wallet, key_id)`.
+    ///
+    /// The wallet must authorize the call; an investment escrow can create the
+    /// lock-up as part of an investment transaction carrying the wallet's
+    /// authorization. The unlock timestamp is an absolute ledger timestamp.
+    pub fn create_lockup(
+        env: Env,
+        wallet: Address,
+        key_id: Address,
+        unlock_timestamp: u64,
+    ) -> Result<(), ContractError> {
+        wallet.require_auth();
+        let storage_key = constants::storage::investor_lockup(&wallet, &key_id);
+        env.storage()
+            .persistent()
+            .set(&storage_key, &unlock_timestamp);
+        extend_key_ttl_to_full_window(&env, &storage_key);
+        env.events().publish(
+            events::lockup_created_topics(&wallet, &key_id),
+            events::LockupCreatedEvent {
+                wallet,
+                key_id,
+                unlock_timestamp,
+            },
+        );
+        Ok(())
+    }
+
+    /// Returns whether the investor lock-up is active and its remaining seconds.
+    ///
+    /// The unlock timestamp is inclusive: at or after that timestamp the
+    /// lock-up is no longer active and `seconds_remaining` is zero.
+    pub fn check_lockup(env: Env, wallet: Address, key_id: Address) -> (bool, u64) {
+        investor_lockup_status(&env, &wallet, &key_id)
+    }
+
+    /// Immediately removes an investor lock-up as an admin emergency override.
+    pub fn emergency_unlock(
+        env: Env,
+        admin: Address,
+        wallet: Address,
+        key_id: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        let storage_key = constants::storage::investor_lockup(&wallet, &key_id);
+        let unlock_timestamp: u64 = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .ok_or(ContractError::LockupNotFound)?;
+        env.storage().persistent().remove(&storage_key);
+        env.events().publish(
+            events::lockup_released_topics(&wallet, &key_id),
+            events::LockupReleasedEvent {
+                wallet,
+                key_id,
+                unlock_timestamp,
+                released_at: env.ledger().timestamp(),
+            },
+        );
+        Ok(())
     }
 
     pub fn set_flash_loan_guard_ledgers(
@@ -15635,6 +15759,8 @@ impl CreatorKeysContract {
                 return Err(ContractError::InsufficientBalance);
             }
 
+            enforce_investor_lockup(&env, &seller, &creator)?;
+
             assert_flash_loan_guard(&env, &creator, &seller)?;
 
             // Anti-flash-trade lockup check
@@ -15681,6 +15807,7 @@ impl CreatorKeysContract {
             let (creator, quantity) = order;
             let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
             let supply_before = profile.supply;
+            enforce_investor_lockup(&env, &seller, &creator)?;
 
             let mut order_proceeds: i128 = 0;
             let mut i = 0u32;

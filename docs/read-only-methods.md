@@ -336,6 +336,17 @@ Returns accrued creator fee balance for the creator's fee recipient after buy ex
 
 ---
 
+### `get_current_milestone(key_id: Address) → Result<(u32, u32), ContractError>`
+
+Returns the active graduated supply milestone tier and the fee currently in effect for `key_id` (#1076).
+
+- Returns `(tier, fee_bps)` where `tier` is the 1-based count of milestone tiers reached (`0` when none) and `fee_bps` is the fee in basis points currently in effect.
+- Tiers are applied in ascending supply order and the fee only ever moves downward, so a supply drop never raises the fee.
+- Returns `Err(ContractError::NotRegistered)` for unregistered keys.
+- Does not mutate state.
+
+---
+
 ### `is_protocol_config_initialized(env: Env) → bool`
 
 Returns `true` if a protocol fee configuration has been stored; `false` otherwise.
@@ -469,6 +480,23 @@ Returns `wallet`'s active price alerts in registration order. Each `PriceAlert` 
 **Edge cases:**
 - Never panics and requires no authorization. A wallet that never registered an alert returns an empty vector.
 - Read-only: references to alerts that have fired are filtered out here and only pruned from storage the next time the wallet calls `register_alert` or `cancel_alert`.
+
+---
+
+## LP reward read methods
+
+### `get_reward_rate(key_id: Address) → RewardRate`
+
+Returns the current reward rate and the timestamp at which it was last set for `key_id`'s LP pool.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `rate_bps` | `u32` | Reward rate in basis points (e.g., `500` = 5.00%). Returns `0` if not set. |
+| `updated_at` | `u64` | Ledger timestamp (in seconds) of the last update. Returns `0` if not set. |
+
+**Edge cases:**
+- Never panics and requires no authorization.
+- Returns `{ rate_bps: 0, updated_at: 0 }` for any key where `set_reward_rate` has not been called, or if `key_id` is unregistered.
 
 ---
 

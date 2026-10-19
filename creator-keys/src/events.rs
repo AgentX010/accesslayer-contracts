@@ -193,6 +193,9 @@ pub const DELEGATION_SET_EVENT_NAME: Symbol = symbol_short!("dlg_set");
 
 /// Event name for delegation revoked.
 pub const DELEGATION_REVOKED_EVENT_NAME: Symbol = symbol_short!("dlg_rev");
+
+/// Event name for a performance bond being forfeited to the protocol treasury.
+pub const BOND_FORFEITED_EVENT_NAME: Symbol = symbol_short!("bond_forf");
 /// Topic index for the event name in common event topic tuples.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 
@@ -201,6 +204,35 @@ pub const TOPIC_CREATOR_INDEX: u32 = 1;
 
 /// Topic index for the buyer/seller/actor address in common event topic tuples.
 pub const TOPIC_BUYER_INDEX: u32 = 2;
+
+/// Stable field order for bond forfeited event payloads.
+pub const BOND_FORFEITED_DATA_FIELDS: [&str; 4] = ["key_id", "reason", "amount", "ledger"];
+
+/// Stable bond forfeited event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BOND_FORFEITED_EVENT_NAME, key_id)`
+/// - data: `BondForfeitedEvent`
+///
+/// Emitted when an admin forfeits a creator's performance bond, routing the
+/// deposited amount to the protocol treasury.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BondForfeitedEvent {
+    /// Creator key whose bond was forfeited.
+    pub key_id: Address,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Bond amount routed to the protocol treasury.
+    pub amount: i128,
+    /// Ledger sequence number at the time of forfeiture.
+    pub ledger: u32,
+}
+
+/// Shared bond forfeited event topics tuple.
+pub fn bond_forfeited_topics(key_id: &Address) -> (Symbol, Address) {
+    (BOND_FORFEITED_EVENT_NAME, key_id.clone())
+}
 
 /// Stable field order for registration event payloads.
 pub const REGISTER_EVENT_DATA_FIELDS: [&str; 8] = [
@@ -1140,6 +1172,7 @@ pub const EARLY_ACCESS_MODE_CHANGED_EVENT_NAME: Symbol = symbol_short!("ea_mode"
 pub const REFERRAL_REGISTERED_EVENT_NAME: Symbol = symbol_short!("ref_reg");
 pub const REFERRAL_REWARD_ALLOCATED_EVENT_NAME: Symbol = symbol_short!("ref_rwd");
 pub const REFERRAL_REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("ref_clm");
+pub const REFERRAL_TIER_UPGRADED_EVENT_NAME: Symbol = symbol_short!("tier_upg");
 pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
 pub const SELF_FREEZE_APPLIED_EVENT_NAME: Symbol = symbol_short!("sf_add");
 pub const SELF_FREEZE_LIFTED_EVENT_NAME: Symbol = symbol_short!("sf_del");
@@ -1472,6 +1505,20 @@ pub struct ReferralRewardsClaimedEvent {
 
 pub fn referral_rewards_claimed_topics() -> Symbol {
     REFERRAL_REWARDS_CLAIMED_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralTierUpgradedEvent {
+    pub referrer: Address,
+    pub old_tier: u32,
+    pub new_tier: u32,
+    pub volume: i128,
+    pub reward_rate_bps: u32,
+}
+
+pub fn referral_tier_upgraded_topics(referrer: &Address) -> (Symbol, Address) {
+    (REFERRAL_TIER_UPGRADED_EVENT_NAME, referrer.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1957,6 +2004,44 @@ pub struct BatchBuyCompletedEvent {
 /// Shared batch buy completed event topics tuple.
 pub fn batch_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
     (BATCH_BUY_COMPLETED_EVENT_NAME, buyer.clone())
+}
+
+/// Event name for an atomic bundle purchase (Issue #1057).
+pub const BUNDLE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("bundle");
+
+/// Per-item line of a [`BundleExecutedEvent`].
+///
+/// `price_paid` is the gross cost of `amount` keys of `key_id`, i.e. the same
+/// figure `KeysBoughtEvent::price_paid` reports for a stand-alone buy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BundleItemBreakdown {
+    pub key_id: Address,
+    pub amount: u32,
+    pub price_paid: i128,
+}
+
+/// Stable bundle-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BUNDLE_EXECUTED_EVENT_NAME, buyer)`
+/// - data: `BundleExecutedEvent`
+///
+/// Emitted exactly once, only after **every** item in the bundle succeeded.
+/// `total_cost` always equals the sum of `items[*].price_paid`, and `items`
+/// preserves the order the buyer submitted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BundleExecutedEvent {
+    pub buyer: Address,
+    pub items: Vec<BundleItemBreakdown>,
+    pub total_cost: i128,
+    pub ledger: u32,
+}
+
+/// Shared bundle executed event topics tuple.
+pub fn bundle_executed_topics(buyer: &Address) -> (Symbol, Address) {
+    (BUNDLE_EXECUTED_EVENT_NAME, buyer.clone())
 }
 
 /// Event name for batch sell completion.
@@ -2549,6 +2634,35 @@ pub fn slippage_check_passed_topics(creator: &Address) -> (Symbol, Address) {
     (SLIPPAGE_CHECK_PASSED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for a bonding-curve swap rejected by its price-impact guard.
+pub const SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("swap_slp");
+
+/// Emitted when a bonding-curve `swap` is rejected because the computed
+/// price impact exceeds the caller's `max_slippage_bps` tolerance. The
+/// payload carries both the actual impact and the requested ceiling so
+/// clients and indexers can surface the exact breach magnitude.
+///
+/// Event shape:
+/// - topics: `(SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator)`
+/// - data: `SwapSlippageExceededEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SwapSlippageExceededEvent {
+    /// Creator whose bonding curve was being swapped against.
+    pub creator_id: Address,
+    /// Computed price impact of the rejected swap, in basis points.
+    pub actual_bps: u32,
+    /// Caller-supplied slippage ceiling that the impact breached.
+    pub max_bps: u32,
+    /// Ledger sequence at which the breach was detected.
+    pub ledger: u32,
+}
+
+/// Shared swap-slippage-exceeded event topics tuple.
+pub fn swap_slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
+    (SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
+}
+
 // --- Max buy quantity per transaction (#828) ---
 
 /// Event name emitted when the creator updates the max buy quantity per transaction.
@@ -2717,6 +2831,55 @@ pub struct MilestoneCrossedEvent {
 
 pub fn milestone_crossed_topics(key_id: &Address) -> (Symbol, Address) {
     (MILESTONE_CROSSED_EVENT_NAME, key_id.clone())
+}
+
+// --- Supply milestone fee reduction (#1076) ---
+
+/// Emitted when a key's circulating supply crosses a milestone threshold and
+/// the fee in effect is reduced.
+pub const MILESTONE_REACHED_EVENT_NAME: Symbol = symbol_short!("ms_reach");
+
+/// Event shape:
+/// - topics: `(MILESTONE_REACHED_EVENT_NAME, key_id)`
+/// - data: `MilestoneReachedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MilestoneReachedEvent {
+    /// The key whose supply crossed the milestone threshold.
+    pub key_id: Address,
+    /// 1-based index of the milestone tier that was reached.
+    pub tier: u32,
+    /// Circulating supply after the trade that crossed the threshold.
+    pub supply: u32,
+    /// New fee in basis points after the reduction.
+    pub new_fee_bps: u32,
+    /// Ledger sequence number at the time of the reduction.
+    pub ledger: u32,
+}
+
+pub fn milestone_reached_topics(key_id: &Address) -> (Symbol, Address) {
+    (MILESTONE_REACHED_EVENT_NAME, key_id.clone())
+}
+
+/// Publish a [`MilestoneReachedEvent`] for `key_id`.
+pub fn publish_milestone_reached(
+    env: &Env,
+    key_id: &Address,
+    tier: u32,
+    supply: u32,
+    new_fee_bps: u32,
+    ledger: u32,
+) {
+    env.events().publish(
+        milestone_reached_topics(key_id),
+        MilestoneReachedEvent {
+            key_id: key_id.clone(),
+            tier,
+            supply,
+            new_fee_bps,
+            ledger,
+        },
+    );
 }
 
 // --- Contract upgrade (#884) ---
@@ -3993,4 +4156,43 @@ pub struct KeyRatedEvent {
 /// Shared key rated event topics tuple.
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
+}
+
+// --- Creator announcements ---
+
+/// Event name for a creator announcement posted to key holders.
+pub const ANNOUNCEMENT_POSTED_EVENT_NAME: Symbol = symbol_short!("announce");
+
+/// Stable announcement payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(ANNOUNCEMENT_POSTED_EVENT_NAME, key_id, announcement_id)`
+/// - data: `AnnouncementPostedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AnnouncementPostedEvent {
+    /// Creator key whose holders the announcement targets.
+    pub key_id: Address,
+    /// Sequential identifier within this creator's announcement history.
+    pub announcement_id: u32,
+    /// Short announcement headline.
+    pub title: String,
+    /// IPFS content identifier for the complete announcement content.
+    pub content_hash: String,
+    /// Announcement category.
+    pub category: crate::AnnouncementCategory,
+    /// Ledger timestamp at which the announcement was posted.
+    pub posted_at: u64,
+}
+
+/// Shared announcement event topics tuple.
+pub fn announcement_posted_topics(
+    key_id: &Address,
+    announcement_id: u32,
+) -> (Symbol, Address, u32) {
+    (
+        ANNOUNCEMENT_POSTED_EVENT_NAME,
+        key_id.clone(),
+        announcement_id,
+    )
 }

@@ -1,8 +1,9 @@
 #![cfg(test)]
 
 use crate::{
-    LiquidityAdded, LPAdded, RewardsClaimed, LPRewardClaimed, LpRewardContract, LpRewardContractClient, LpRewardError,
-    LIQUIDITY_ADDED_EVENT_NAME, LP_ADDED_EVENT_NAME, REWARDS_CLAIMED_EVENT_NAME, LP_CLAIMED_EVENT_NAME,
+    LPAdded, LPRewardClaimed, LiquidityAdded, LpRewardContract, LpRewardContractClient,
+    LpRewardError, RewardsClaimed, LIQUIDITY_ADDED_EVENT_NAME, LP_ADDED_EVENT_NAME,
+    LP_CLAIMED_EVENT_NAME, REWARDS_CLAIMED_EVENT_NAME,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events},
@@ -304,10 +305,10 @@ fn test_rewards_claimed_event_emitted_on_claim() {
 
     let lp_id = client.add_liquidity(&key_id, &provider, &5_000);
     client.accrue_trading_fee(&key_id, &500);
-    
+
     let claimed = client.claim_lp_rewards(&lp_id);
     assert_eq!(claimed, 100); // 20% of 500 = 100
-    
+
     let events: Vec<RewardsClaimed> = get_events(&env, REWARDS_CLAIMED_EVENT_NAME);
     assert_eq!(events.len(), 1);
     let event = events.get(0).unwrap();
@@ -323,10 +324,10 @@ fn test_get_lp_rewards_returns_pending_rewards() {
 
     let lp_id = client.add_liquidity(&key_id, &provider, &5_000);
     assert_eq!(client.get_lp_rewards(&lp_id), 0);
-    
+
     client.accrue_trading_fee(&key_id, &500);
     assert_eq!(client.get_lp_rewards(&lp_id), 100); // 20% of 500
-    
+
     client.claim_lp_rewards(&lp_id);
     assert_eq!(client.get_lp_rewards(&lp_id), 0);
 }

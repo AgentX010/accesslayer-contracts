@@ -3412,8 +3412,11 @@ pub struct TradeEvent {
     pub ledger: u32,
 }
 
+
 pub fn trade_topics(key_id: &Address) -> (Symbol, Address) {
-    (TRADE_EVENT_NAME, key_id.
+    (TRADE_EVENT_NAME, key_id.clone())
+}
+
 pub const BOOTSTRAP_STARTED_EVENT_NAME: Symbol = symbol_short!("boot_strt");
 pub const BOOTSTRAP_ENDED_EVENT_NAME: Symbol = symbol_short!("boot_end");
 

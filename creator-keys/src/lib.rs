@@ -7,33 +7,8 @@ use soroban_sdk::{
 };
 pub mod quote_view_errors;
 pub mod vesting;
-/// Returns current bootstrap price or None if bootstrap period has ended.
-    pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
-        /// Admin sets up a liquidity bootstrapping phase for a new key launch.
-    pub fn create_bootstrap(
-        env: Env,
-        admin: Address,
-        key_id: Address,
-        start_price: i128,
-        end_price: i128,
-        duration_seconds: u64,
-    ) -> Result<(), quote_view_errors::ContractError> {
-        admin.require_auth();
-        bootstrapping::set_bootstrap_config(
-            &env,
-            &key_id,
-            start_price,
-            end_price,
-            duration_seconds,
-        );
-        Ok(())
-    }
-
-    /// Returns current bootstrap price or None if bootstrap period has ended.
-    pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
-        bootstrapping::get_bootstrap_price_internal(&env, &key_id)
-    }
-
+pub mod bootstrapping;
+pub mod events;
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
@@ -21459,3 +21434,30 @@ feat/liquidity-bootstrapping-1
 #[cfg(test)]
 mod test_announcements;
 main
+
+    /// Admin sets up a liquidity bootstrapping phase for a new key launch.
+    pub fn create_bootstrap(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        start_price: i128,
+        end_price: i128,
+        duration_seconds: u64,
+    ) -> Result<(), quote_view_errors::ContractError> {
+        admin.require_auth();
+        bootstrapping::set_bootstrap_config(
+            &env,
+            &key_id,
+            start_price,
+            end_price,
+            duration_seconds,
+        );
+        Ok(())
+    }
+
+    /// Returns current bootstrap price or None if bootstrap period has ended.
+    pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
+        bootstrapping::get_bootstrap_price_internal(&env, &key_id)
+    }
+}
+

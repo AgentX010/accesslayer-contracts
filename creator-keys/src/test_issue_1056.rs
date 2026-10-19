@@ -1,11 +1,9 @@
 use crate::dynamic_fees::{self, VolumeBracket};
 use crate::events::{self, FeeAdjustedEvent, FeeCollectedEvent};
-use crate::{
-    ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
-};
+use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger as _}, vec, Address, Env, String, Symbol,
-    TryIntoVal, Vec,
+    testutils::{Address as _, Events as _, Ledger as _},
+    vec, Address, Env, String, Symbol, TryIntoVal, Vec,
 };
 
 const START_TIMESTAMP: u64 = 1_200;
@@ -94,10 +92,12 @@ fn fee_collected_events(env: &Env) -> Vec<FeeCollectedEvent> {
 }
 
 fn record_trade(setup: &Setup, key_id: &Address, volume: i128) {
-    setup.env.as_contract(&setup.contract_id, || {
-        dynamic_fees::record_trade(&setup.env, key_id, volume)
-    })
-    .unwrap();
+    setup
+        .env
+        .as_contract(&setup.contract_id, || {
+            dynamic_fees::record_trade(&setup.env, key_id, volume)
+        })
+        .unwrap();
 }
 
 #[test]
@@ -106,9 +106,7 @@ fn defaults_cover_all_fee_boundaries() {
     let contract_id = env.register(CreatorKeysContract, ());
     env.as_contract(&contract_id, || {
         let brackets = dynamic_fees::default_volume_brackets(&env);
-        for (volume, expected_fee) in
-            [(0, 150), (99, 150), (100, 100), (1_000, 100), (1_001, 75)]
-        {
+        for (volume, expected_fee) in [(0, 150), (99, 150), (100, 100), (1_000, 100), (1_001, 75)] {
             assert_eq!(dynamic_fees::fee_for_volume(&env, volume), expected_fee);
         }
         assert_eq!(brackets.len(), dynamic_fees::DEFAULT_VOLUME_BRACKETS);
@@ -119,20 +117,18 @@ fn defaults_cover_all_fee_boundaries() {
 fn volume_is_key_scoped_and_expires_at_the_24_hour_boundary() {
     let setup = setup();
     let other_key = Address::generate(&setup.env);
-    setup
-        .client
-        .register_creator(
-            &RegisterCreatorParams {
-                creator: other_key.clone(),
-                handle: String::from_str(&setup.env, "othercreator"),
-            },
-            &None,
-            &None,
-            &None,
-            &None,
-            &None,
-            &None,
-        );
+    setup.client.register_creator(
+        &RegisterCreatorParams {
+            creator: other_key.clone(),
+            handle: String::from_str(&setup.env, "othercreator"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     record_trade(&setup, &setup.creator, 100);
 
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 100);
@@ -145,9 +141,10 @@ fn volume_is_key_scoped_and_expires_at_the_24_hour_boundary() {
         .ledger()
         .set_timestamp(START_TIMESTAMP + dynamic_fees::ROLLING_WINDOW_SECS);
     assert_eq!(setup.client.get_current_fee_bps(&setup.creator), 100);
-    setup.env.ledger().set_timestamp(
-        START_TIMESTAMP + dynamic_fees::ROLLING_WINDOW_SECS + 1,
-    );
+    setup
+        .env
+        .ledger()
+        .set_timestamp(START_TIMESTAMP + dynamic_fees::ROLLING_WINDOW_SECS + 1);
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 0);
     assert_eq!(setup.client.get_current_fee_bps(&setup.creator), 150);
 }
@@ -171,9 +168,7 @@ fn admin_bracket_update_preserves_volume_and_rejects_invalid_or_unauthorized_upd
 
     let unauthorized = Address::generate(&setup.env);
     assert_eq!(
-        setup
-            .client
-            .try_set_volume_brackets(&unauthorized, &custom),
+        setup.client.try_set_volume_brackets(&unauthorized, &custom),
         Err(Ok(ContractError::Unauthorized))
     );
 
@@ -236,7 +231,9 @@ fn swaps_use_pre_trade_volume_and_record_success_once() {
 
     let failed_buyer = Address::generate(&setup.env);
     assert_eq!(
-        setup.client.try_buy_key(&setup.creator, &failed_buyer, &0i128, &None),
+        setup
+            .client
+            .try_buy_key(&setup.creator, &failed_buyer, &0i128, &None),
         Err(Ok(ContractError::NotPositiveAmount))
     );
     assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), 3_000);
@@ -257,9 +254,10 @@ fn fee_adjusted_emits_once_for_bracket_crossings_and_expiry() {
     record_trade(&setup, &setup.creator, 50);
     assert_eq!(fee_adjusted_events(&setup.env, &setup.creator).len(), 1);
 
-    setup.env.ledger().set_timestamp(
-        START_TIMESTAMP + dynamic_fees::ROLLING_WINDOW_SECS + 1,
-    );
+    setup
+        .env
+        .ledger()
+        .set_timestamp(START_TIMESTAMP + dynamic_fees::ROLLING_WINDOW_SECS + 1);
     assert_eq!(setup.client.get_current_fee_bps(&setup.creator), 150);
     record_trade(&setup, &setup.creator, 10);
     let events = fee_adjusted_events(&setup.env, &setup.creator);
@@ -285,5 +283,8 @@ fn volume_accumulation_rejects_overflow_without_replacing_existing_volume() {
             dynamic_fees::record_trade(&setup.env, &setup.creator, 1)
         })
         .unwrap_err();
-    assert_eq!(setup.client.get_key_rolling_volume(&setup.creator), i128::MAX);
+    assert_eq!(
+        setup.client.get_key_rolling_volume(&setup.creator),
+        i128::MAX
+    );
 }

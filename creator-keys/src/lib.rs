@@ -3973,11 +3973,7 @@ fn assert_buyback_total_cost_slippage(
     Ok(())
 }
 
-fn compute_sell_proceeds(
-    env: &Env,
-    creator: &Address,
-    price: i128,
-) -> Result<i128, ContractError> {
+fn compute_sell_proceeds(env: &Env, creator: &Address, price: i128) -> Result<i128, ContractError> {
     // The protocol trade fee is deducted before the creator/seller split, so
     // proceeds are computed on the net amount to mirror the sell execution path.
     let trade_fee = compute_trade_fee(env, creator, price)?;

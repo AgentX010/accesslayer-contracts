@@ -109,7 +109,10 @@ pub fn rolling_volume(env: &Env, key_id: &Address) -> Result<i128, ContractError
 
 pub fn fee_for_volume(env: &Env, volume: i128) -> u32 {
     let brackets = read_volume_brackets(env);
-    let mut fee_bps = brackets.get(0).map(|bracket| bracket.fee_bps).unwrap_or(150);
+    let mut fee_bps = brackets
+        .get(0)
+        .map(|bracket| bracket.fee_bps)
+        .unwrap_or(150);
     for bracket in brackets.iter() {
         if volume < bracket.min_volume {
             break;
@@ -212,10 +215,7 @@ pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), Con
 }
 
 pub fn volume_buckets(env: &Env, key_id: &Address) -> Vec<VolumeBucket> {
-    let cutoff = env
-        .ledger()
-        .timestamp()
-        .saturating_sub(ROLLING_WINDOW_SECS);
+    let cutoff = env.ledger().timestamp().saturating_sub(ROLLING_WINDOW_SECS);
     let mut current = Vec::new(env);
     for bucket in read_volume_buckets(env, key_id).iter() {
         if bucket.bucket_start >= cutoff {

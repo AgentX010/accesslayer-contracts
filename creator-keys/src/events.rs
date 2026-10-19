@@ -4108,3 +4108,42 @@ pub struct KeyRatedEvent {
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
 }
+
+// --- Creator announcements ---
+
+/// Event name for a creator announcement posted to key holders.
+pub const ANNOUNCEMENT_POSTED_EVENT_NAME: Symbol = symbol_short!("announce");
+
+/// Stable announcement payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(ANNOUNCEMENT_POSTED_EVENT_NAME, key_id, announcement_id)`
+/// - data: `AnnouncementPostedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AnnouncementPostedEvent {
+    /// Creator key whose holders the announcement targets.
+    pub key_id: Address,
+    /// Sequential identifier within this creator's announcement history.
+    pub announcement_id: u32,
+    /// Short announcement headline.
+    pub title: String,
+    /// IPFS content identifier for the complete announcement content.
+    pub content_hash: String,
+    /// Announcement category.
+    pub category: crate::AnnouncementCategory,
+    /// Ledger timestamp at which the announcement was posted.
+    pub posted_at: u64,
+}
+
+/// Shared announcement event topics tuple.
+pub fn announcement_posted_topics(
+    key_id: &Address,
+    announcement_id: u32,
+) -> (Symbol, Address, u32) {
+    (
+        ANNOUNCEMENT_POSTED_EVENT_NAME,
+        key_id.clone(),
+        announcement_id,
+    )
+}

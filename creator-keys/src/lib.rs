@@ -228,6 +228,10 @@ pub enum ContractError {
     StateRestoring = 113,
     /// The creator is not in the lifecycle state the archive operation requires (#709).
     InvalidLifecycleState = 114,
+    /// The requested announcement page exceeds the supported maximum size.
+    AnnouncementPageSizeExceeded = 115,
+    /// An announcement index points to a record that is no longer available.
+    AnnouncementRecordMissing = 116,
 }
 
 impl ContractError {
@@ -2125,6 +2129,16 @@ pub enum FeatureKey {
     MinPerformanceBond,
 }
 
+/// Storage keys for creator announcement records and their sequential index.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum AnnouncementKey {
+    /// Creator -> number of announcements posted -> `u32`.
+    Count(Address),
+    /// (creator, announcement_id) -> `Announcement`.
+    Record(Address, u32),
+}
+
 /// Storage keys for the cycle-based protocol revenue distribution (#877).
 ///
 /// Kept separate from [`DataKey`] to stay within Soroban's 50-variant cap.
@@ -2575,6 +2589,37 @@ pub struct KeyMetadata {
     pub description: String,
     pub image_cid: String,
 }
+
+/// Supported categories for creator announcements to key holders.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum AnnouncementCategory {
+    Update = 0,
+    Milestone = 1,
+    Warning = 2,
+    Event = 3,
+}
+
+/// On-chain announcement metadata. Full content is stored off-chain at `content_hash`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct Announcement {
+    /// Sequential identifier within this creator's announcement history.
+    pub announcement_id: u32,
+    /// Creator key this announcement belongs to.
+    pub key_id: Address,
+    /// Short announcement headline.
+    pub title: String,
+    /// IPFS content identifier for the complete announcement content.
+    pub content_hash: String,
+    /// Announcement category.
+    pub category: AnnouncementCategory,
+    /// Ledger timestamp at which the announcement was posted.
+    pub posted_at: u64,
+}
+
+/// Maximum number of announcements returned in a single page.
+pub const MAX_ANNOUNCEMENT_PAGE_SIZE: u32 = 100;
 
 /// One recipient of a creator key airdrop: the wallet to credit and how many
 /// keys it receives.
@@ -9522,6 +9567,106 @@ impl CreatorKeysContract {
     /// Read-only view: returns a key's complete on-chain metadata.
     pub fn get_metadata(env: Env, key_id: Address) -> Option<KeyMetadata> {
         read_creator_metadata(&env, &key_id)
+    }
+
+    /// Posts an announcement to holders of `key_id`.
+    ///
+    /// The creator must authorize the call. The full announcement body is
+    /// referenced by its IPFS content hash; the title and category are kept
+    /// on-chain and included in the [`events::AnnouncementPostedEvent`].
+    ///
+    /// # Errors
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    /// - [`ContractError::Overflow`] if the per-key announcement id is exhausted.
+    pub fn post_announcement(
+        env: Env,
+        key_id: Address,
+        title: String,
+        content_hash: String,
+        category: AnnouncementCategory,
+    ) -> Result<u32, ContractError> {
+        key_id.require_auth();
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let count_key = AnnouncementKey::Count(key_id.clone());
+        let announcement_id: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        let next_count = announcement_id
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        let announcement = Announcement {
+            announcement_id,
+            key_id: key_id.clone(),
+            title,
+            content_hash,
+            category,
+            posted_at: env.ledger().timestamp(),
+        };
+        let record_key = AnnouncementKey::Record(key_id.clone(), announcement_id);
+
+        env.storage().persistent().set(&record_key, &announcement);
+        extend_key_ttl_to_full_window(&env, &record_key);
+        env.storage().persistent().set(&count_key, &next_count);
+        extend_key_ttl_to_full_window(&env, &count_key);
+
+        env.events().publish(
+            events::announcement_posted_topics(&key_id, announcement_id),
+            events::AnnouncementPostedEvent {
+                key_id,
+                announcement_id,
+                title: announcement.title.clone(),
+                content_hash: announcement.content_hash.clone(),
+                category: announcement.category,
+                posted_at: announcement.posted_at,
+            },
+        );
+
+        Ok(announcement_id)
+    }
+
+    /// Returns announcements in posting order, starting at `offset`.
+    ///
+    /// Pages may contain at most [`MAX_ANNOUNCEMENT_PAGE_SIZE`] records; a
+    /// zero-sized page and offsets beyond the end return an empty vector.
+    ///
+    /// # Errors
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    /// - [`ContractError::AnnouncementPageSizeExceeded`] if `limit` exceeds the
+    ///   supported maximum.
+    /// - [`ContractError::AnnouncementRecordMissing`] if stored pagination
+    ///   metadata refers to a record that is unavailable.
+    pub fn get_announcements(
+        env: Env,
+        key_id: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<Announcement>, ContractError> {
+        if limit > MAX_ANNOUNCEMENT_PAGE_SIZE {
+            return Err(ContractError::AnnouncementPageSizeExceeded);
+        }
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let count_key = AnnouncementKey::Count(key_id.clone());
+        let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        if count > 0 {
+            extend_key_ttl_to_full_window(&env, &count_key);
+        }
+
+        let end = offset.saturating_add(limit).min(count);
+        let mut announcements = Vec::new(&env);
+        let mut announcement_id = offset;
+        while announcement_id < end {
+            let record_key = AnnouncementKey::Record(key_id.clone(), announcement_id);
+            let announcement = env
+                .storage()
+                .persistent()
+                .get::<AnnouncementKey, Announcement>(&record_key)
+                .ok_or(ContractError::AnnouncementRecordMissing)?;
+            extend_key_ttl_to_full_window(&env, &record_key);
+            announcements.push_back(announcement);
+            announcement_id += 1;
+        }
+
+        Ok(announcements)
     }
 
     /// Registers a creator key on their behalf with its full initial config:
@@ -21150,3 +21295,6 @@ mod test_issue_1000;
 
 #[cfg(test)]
 mod test_proxy;
+
+#[cfg(test)]
+mod test_announcements;

@@ -1,50 +1,13 @@
 
-//! Centralized event names and helpers for consistent event emission.
+ //! Centralized event names and helpers for consistent event emission.
 //!
 //! This module provides a single source of truth for event names used throughout
 //! the contract, reducing string duplication and ensuring consistency across
 //! event emission paths.
 //!
 //! ### Event Schema Stability
+
 use soroban_sdk::{contracttype, symbol_short, Address, Symbol};
-//!
-//! This module provides a single source of truth for event names used throughout
-//! the contract, reducing string duplication and ensuring consistency across
-//! event emission paths.
-//!
-//! ### Event Schema Stability
-//!
-//! Downstream indexers rely on the stable ordering of fields in event payloads.
-//! When modifying event structures:
-//! - **Do not reorder** existing fields.
-//! - **Add new fields** only at the end of the structure to maintain compatibility.
-//! - **Avoid removing fields**; if a field is deprecated, keep it with a default value.
-//!
-//! This approach ensures that indexers can reliably parse event data across
-//! different contract versions.
-//!
-//! ### Horizon Event Encoding
-//!
-//! Events are consumed off-chain through the Stellar Horizon / Soroban RPC
-//! event stream, which decodes topics and data as ScVal types:
-//! - The first topic of every event is a `Symbol` from the `*_EVENT_NAME`
-//!   constants in this module (at most 9 characters, via `symbol_short!`).
-//!   Never publish a raw `String` as a topic.
-//! - Remaining topics are `Address` or integer (`u32`) identifiers, built by
-//!   the shared `*_topics` helpers.
-//! - Event data is a `#[contracttype]` struct (encoded as an ScVal map) or a
-//!   plain ScVal value; every struct documents its topics and fields under
-//!   "Event shape" in this module.
-//! - Events without a dedicated struct carry a plain value as data:
-//!   `pause`, `unpause`, `blk_add`, `blk_rem` (`()`), `dl_set` (deadline
-//!   ledger `Option<u32>`), `ttl_ext` (new live-until ledger `u32`),
-//!   `gpause_on` / `gpause_of` (ledger `u32`), `poll_new` (expiry ledger) and
-//!   `poll_vote` (`(option_index, weight)`).
-//!
-//! ### Quote-Related Event Field Semantics
-//!
-//! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
-//! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
 use crate::{
     constants, extend_key_ttl_to_full_window, read_creator_supply, read_registered_creator_profile,

@@ -3,7 +3,7 @@ use crate::events::{self, FeeAdjustedEvent, FeeCollectedEvent};
 use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    vec, Address, Env, String, Symbol, TryIntoVal, Vec,
+    Address, Env, String, Symbol, TryIntoVal, Vec,
 };
 
 const START_TIMESTAMP: u64 = 1_200;

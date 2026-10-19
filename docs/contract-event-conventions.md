@@ -163,6 +163,25 @@ Notes for indexers:
 - `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
 - `updated_at` is the ledger timestamp in seconds.
 
+### Per-Key Dynamic Swap Fee Events (#1056)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `fee_adj` | `(Symbol("fee_adj"), key_id)` | `key_id`, `previous_fee_bps`, `new_fee_bps`, `rolling_volume`, `timestamp` | `struct FeeAdjustedEvent` |
+
+Notes for indexers:
+
+- `rolling_volume` is gross trade volume in the raw price base units at the
+  transition point. An expiry transition reports volume before the current
+  trade is added; a bracket crossing caused by that trade reports volume after
+  it is added.
+- Swaps select their fee from pre-trade volume. Fee changes caused by the
+  current swap apply to later swaps.
+- Time expiration and bracket updates do not autonomously emit events. A
+  later successful trade detects and emits the transition; reads never emit
+  or mutate.
+- No event is emitted if the fee bps is unchanged.
+
 ### Supply Milestone Fee Reduction Events (#1076)
 
 | Event Name | Topics (Index 0, 1) | Data Fields | Data Type |

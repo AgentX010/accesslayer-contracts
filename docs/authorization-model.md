@@ -29,6 +29,14 @@ Sets the global fee split between creators and the protocol.
 - **Constraints**: `creator_bps + protocol_bps` must equal `10000`. `protocol_bps` must not exceed `5000` (`PROTOCOL_BPS_MAX`).
 - **No-op**: Returns `Ok(())` without writing if the new config matches the stored config.
 
+### `set_volume_brackets(admin: Address, brackets: Vec<VolumeBracket>) -> Result<(), ContractError>`
+
+Replaces the per-key rolling-volume swap fee brackets without clearing recorded volume.
+
+- **Auth**: `admin.require_auth()` and the stored protocol admin check.
+- **Constraints**: First threshold must be zero; subsequent minimum volumes must be strictly increasing; fee values must be at most 10,000 bps; one to five brackets are accepted.
+- **Behavior**: Applies immediately to fee queries and the next trade. A newly detected event is emitted by the next successful trade for that key.
+
 ---
 
 ### `set_key_price(admin: Address, price: i128) -> Result<(), ContractError>`
@@ -230,6 +238,7 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `sell_key` | Key holder (seller) | Yes |
 | `transfer_keys` | Key holder (sender / `from`) | Yes |
 | `set_fee_config` | Admin | Yes |
+| `set_volume_brackets` | Admin | Yes |
 | `set_key_price` | Admin | Yes |
 | `set_treasury_address` | Admin | Yes |
 | `set_protocol_admin` | Admin | Yes |

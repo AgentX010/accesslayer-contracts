@@ -114,6 +114,23 @@ LP reward rate management (issue #1032) uses `DataKey::RewardRate(Address)` in [
 
 **Storage layout / backward compatibility**: `DataKey::RewardRate(Address)` is an additive storage key with a zero default. No existing storage key is read or modified, and no migration is required.
 
+### Per-Key Dynamic Fee Storage-Key Notes (#1056)
+
+The dynamic fee module uses its own `contracttype` storage-key enum, so its
+entries do not alter the discriminants of the main contract `DataKey` enum.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Volume brackets | `dynamic_fees::DataKey::VolumeBrackets` | Ordered `Vec<VolumeBracket>` | Fee queries and swaps | `set_volume_brackets` (admin-auth only) |
+| Rolling volume | `dynamic_fees::DataKey::KeyVolumeBuckets(key_id)` | At most 289 timestamped 5-minute buckets | `get_current_fee_bps`, `get_key_rolling_volume`, swaps | Successful buy/sell fee collection |
+| Last observed rate | `dynamic_fees::DataKey::LastFeeBps(key_id)` | `u32` | Trade transition detection | Successful buy/sell fee collection |
+
+Bucket timestamps use Unix seconds. Buckets whose start precedes the 24-hour
+cutoff are excluded, preventing stale activity from being counted but
+potentially under-counting the oldest partially overlapping bucket by up to
+five minutes. Read-only fee queries ignore expired buckets without pruning or
+changing state. Failed/reverted trades roll back volume and rate writes.
+
 ## Storage Invariants
 
 These invariants must hold true after every contract operation:

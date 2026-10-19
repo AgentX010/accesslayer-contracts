@@ -50,6 +50,31 @@ use soroban_sdk::{
 /// Event name for protocol trade fee collected on a buy or sell.
 pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 
+/// Event name for a per-key dynamic trade fee bracket change.
+pub const FEE_ADJUSTED_EVENT_NAME: Symbol = symbol_short!("fee_adj");
+pub const FEE_ADJUSTED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "previous_fee_bps",
+    "new_fee_bps",
+    "rolling_volume",
+    "timestamp",
+];
+
+/// Stable payload for a detected change in a key's dynamic trade fee.
+///
+/// Event shape:
+/// - topics: `(FEE_ADJUSTED_EVENT_NAME, key_id)`
+/// - data: `FeeAdjustedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeAdjustedEvent {
+    pub key_id: Address,
+    pub previous_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub rolling_volume: i128,
+    pub timestamp: u64,
+}
+
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:

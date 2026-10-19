@@ -3474,10 +3474,16 @@ pub struct AnnouncementPostedEvent {
 pub fn announcement_posted_topics(
     key_id: &Address,
     announcement_id: u32,
-)  (Symbol, Address, u32) {
+) -> (Symbol, Address, u32) {
     (
-        ANNOUNCEMENT_POSTED_EVENT_NAME,
+        ANNOUNCEMENT_POSTED_EVENT_NAME.clone(),
         key_id.clone(),
         announcement_id,
     )
 }
+
+/// Helper function to generate event topics for reputation updates
+pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
+}
+

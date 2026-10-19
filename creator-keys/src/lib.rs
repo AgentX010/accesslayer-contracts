@@ -1,9 +1,10 @@
+#![no_std]
+#![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String, Vec,
 };
-#![no_std]
-#![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 pub mod quote_view_errors;
 pub mod vesting;
 /// Admin sets up a liquidity bootstrapping phase for a new key launch.

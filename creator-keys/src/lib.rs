@@ -20,6 +20,7 @@ pub mod emergency_pause;
 pub mod events;
 pub mod lp_reward;
 pub mod price_alerts;
+pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;

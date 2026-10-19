@@ -178,6 +178,22 @@ Notes for indexers:
 - `new_fee_bps` reports the new fee in basis points (`0..=10000`).
 - `ledger` is the ledger sequence number at the time of the reduction.
 
+### Creator Key Vote Delegation Events (#1116)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `vote_del` | `(Symbol("vote_del"), key_id, holder)` | `holder`, `delegate_wallet`, `key_id`, `weight` | `struct VotingDelegated` |
+| `v_del_rev` | `(Symbol("v_del_rev"), key_id, holder)` | `holder`, `previous_delegate_wallet`, `key_id`, `weight` | `struct DelegationRevoked` |
+
+Notes for indexers:
+
+- `vote_del` is emitted by `delegate_votes` when a key holder assigns their voting weight on `key_id` to a proxy delegate wallet.
+- `v_del_rev` is emitted by `revoke_delegation` when a key holder revokes their voting delegation on `key_id`.
+- Topic index 1 is `key_id` (`Address`) and topic index 2 is `holder` (`Address`).
+- `weight` reports the key balance held by the delegator at delegation/revocation time.
+- Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+
 

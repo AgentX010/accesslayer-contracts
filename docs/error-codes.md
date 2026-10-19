@@ -71,11 +71,16 @@ intentionally unassigned.
 | `116` | `AnnouncementRecordMissing` | An announcement index points to a record that is no longer available | Triggered when an announcement page references an absent record in stored pagination state. |
 | `117` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
 | `118` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
+| `119` | `SelfDelegation` | Attempted vote delegation to self | Triggered by `delegate_votes` when `holder == delegate_wallet`. |
+| `120` | `AlreadyDelegated` | Key already has an active vote delegation | Triggered by `delegate_votes` when the holder has already delegated voting weight for this key; revoke first to re-delegate. |
+| `121` | `NoDelegation` | No active vote delegation found to revoke | Triggered by `revoke_delegation` when the caller has no active delegation for this key. |
+| `122` | `CannotReDelegate` | Re-delegation or chained delegation is rejected | Triggered by `delegate_votes` when a delegate tries to delegate their weight or a delegator tries to receive delegation (delegation chain limited to 1 level). |
+| `123` | `NotAHolder` | Caller holds zero keys for this creator | Triggered by `delegate_votes` when the caller has no liquid keys for the specified creator key. |
 
-**Backward compatibility for 107-118**: these codes
+**Backward compatibility for 107-123**: these codes
 are appended after the previously highest code (`106`, `CapTooLow`). Codes
 `115` and `116` are reserved for announcement errors; investor lock-up errors
-use `117` and `118` to avoid collisions. No existing variant was renumbered,
+use `117` and `118`; vote delegation errors (Issue #1116) use `119`–`123`. No existing variant was renumbered,
 reordered, or reused. `register_alert` reports an unregistered key with
 `NotRegistered` (2) and a non-positive target price with `NotPositiveAmount`
 (6).

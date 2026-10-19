@@ -1847,12 +1847,13 @@ impl CreatorKeysContract {
         }
 
         let delegate_key = constants::storage::delegate(&creator_id, &voter);
-        if env.storage().persistent().has(&delegate_key) {
+        if env.storage().persistent().has(&delegate_key)
+            || crate::vote_delegation::has_active_delegation(&env, &creator_id, &voter)
+        {
             return Err(PollError::Unauthorized);
         }
 
-        let balance_key = constants::storage::holder_balance_key(&creator_id, &voter);
-        let weight: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let weight: u32 = crate::vote_delegation::get_voting_weight(&env, &voter, &creator_id);
         if weight == 0 {
             return Err(PollError::NotAHolder);
         }
@@ -4238,4 +4239,97 @@ pub fn announcement_posted_topics(
         key_id.clone(),
         announcement_id,
     )
+}
+
+// --- Creator key vote delegation for proxy voting rights (Issue #1116) ---
+
+/// Event name for proxy voting delegation set.
+pub const VOTING_DELEGATED_EVENT_NAME: Symbol = symbol_short!("vote_del");
+
+/// Event name for proxy voting delegation revoked.
+pub const VOTE_DELEGATION_REVOKED_EVENT_NAME: Symbol = symbol_short!("v_del_rev");
+
+/// Stable field order for voting delegated payloads.
+pub const VOTING_DELEGATED_DATA_FIELDS: [&str; 4] =
+    ["holder", "delegate_wallet", "key_id", "weight"];
+
+/// Stable field order for delegation revoked payloads.
+pub const VOTE_DELEGATION_REVOKED_DATA_FIELDS: [&str; 4] =
+    ["holder", "previous_delegate_wallet", "key_id", "weight"];
+
+/// Event payload emitted when a key holder delegates voting weight to a proxy wallet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VotingDelegated {
+    pub holder: Address,
+    pub delegate_wallet: Address,
+    pub key_id: Address,
+    pub weight: u32,
+}
+
+/// Event payload emitted when a key holder revokes their voting delegation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DelegationRevoked {
+    pub holder: Address,
+    pub previous_delegate_wallet: Address,
+    pub key_id: Address,
+    pub weight: u32,
+}
+
+impl DelegationRevoked {
+    pub fn previous_delegate(&self) -> &Address {
+        &self.previous_delegate_wallet
+    }
+}
+
+pub fn voting_delegated_topics(key_id: &Address, holder: &Address) -> (Symbol, Address, Address) {
+    (VOTING_DELEGATED_EVENT_NAME, key_id.clone(), holder.clone())
+}
+
+pub fn vote_delegation_revoked_topics(
+    key_id: &Address,
+    holder: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        VOTE_DELEGATION_REVOKED_EVENT_NAME,
+        key_id.clone(),
+        holder.clone(),
+    )
+}
+
+pub fn publish_voting_delegated(
+    env: &Env,
+    holder: &Address,
+    delegate_wallet: &Address,
+    key_id: &Address,
+    weight: u32,
+) {
+    env.events().publish(
+        voting_delegated_topics(key_id, holder),
+        VotingDelegated {
+            holder: holder.clone(),
+            delegate_wallet: delegate_wallet.clone(),
+            key_id: key_id.clone(),
+            weight,
+        },
+    );
+}
+
+pub fn publish_delegation_revoked(
+    env: &Env,
+    holder: &Address,
+    previous_delegate_wallet: &Address,
+    key_id: &Address,
+    weight: u32,
+) {
+    env.events().publish(
+        vote_delegation_revoked_topics(key_id, holder),
+        DelegationRevoked {
+            holder: holder.clone(),
+            previous_delegate_wallet: previous_delegate_wallet.clone(),
+            key_id: key_id.clone(),
+            weight,
+        },
+    );
 }

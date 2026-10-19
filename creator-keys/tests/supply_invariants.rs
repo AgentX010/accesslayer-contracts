@@ -10,9 +10,10 @@ mod contract_test_env;
 
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+    test_wallet_address, test_wallet_address_from_index,
 };
 use creator_keys::CreatorKeysContractClient;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 fn setup<'a>(env: &'a Env, price: i128) -> (CreatorKeysContractClient<'a>, Address) {
     let (client, _) = register_creator_keys(env);
@@ -24,15 +25,42 @@ fn setup<'a>(env: &'a Env, price: i128) -> (CreatorKeysContractClient<'a>, Addre
 // ── Supply conservation: buy then sell returns to prior state ───────────���─
 
 #[test]
+fn test_wallet_address_returns_same_address_for_same_seed() {
+    let env = test_env_with_auths();
+
+    assert_eq!(
+        test_wallet_address(&env, "same-seed"),
+        test_wallet_address(&env, "same-seed")
+    );
+}
+
+#[test]
+fn test_wallet_address_returns_distinct_addresses_for_distinct_inputs() {
+    let env = test_env_with_auths();
+
+    assert_ne!(
+        test_wallet_address_from_index(&env, 1),
+        test_wallet_address_from_index(&env, 2)
+    );
+    assert_ne!(
+        test_wallet_address(&env, "seed-a"),
+        test_wallet_address(&env, "seed-b")
+    );
+}
+
+#[test]
 fn test_supply_buy_then_sell_returns_to_zero() {
     let env = test_env_with_auths();
     let (client, creator) = setup(&env, 100);
     let buyer = Address::generate(&env);
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
-    client.buy_key(&creator, &buyer, &100);
+    client.buy_key(&creator, &buyer, &100, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
-    client.sell_key(&creator, &buyer);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
     assert_eq!(client.get_total_key_supply(&creator), 0);
 }
 
@@ -42,11 +70,14 @@ fn test_supply_buy_two_sell_one_conserves_supply() {
     let (client, creator) = setup(&env, 100);
     let buyer = Address::generate(&env);
 
-    client.buy_key(&creator, &buyer, &100);
-    client.buy_key(&creator, &buyer, &100);
+    client.buy_key(&creator, &buyer, &100, &None);
+    client.buy_key(&creator, &buyer, &100, &None);
     assert_eq!(client.get_total_key_supply(&creator), 2);
 
-    client.sell_key(&creator, &buyer);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
 }
 
@@ -57,10 +88,16 @@ fn test_supply_alternating_buys_and_sells() {
     let buyer = Address::generate(&env);
 
     // buy → sell → buy → sell: supply must be 0 at end
-    client.buy_key(&creator, &buyer, &100);
-    client.sell_key(&creator, &buyer);
-    client.buy_key(&creator, &buyer, &100);
-    client.sell_key(&creator, &buyer);
+    client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
+    client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
     assert_eq!(client.get_key_balance(&creator, &buyer), 0);
@@ -73,13 +110,13 @@ fn test_supply_three_buyers_sum_equals_total() {
     let env = test_env_with_auths();
     let (client, creator) = setup(&env, 100);
 
-    let b1 = Address::generate(&env);
-    let b2 = Address::generate(&env);
-    let b3 = Address::generate(&env);
+    let b1 = test_wallet_address_from_index(&env, 1);
+    let b2 = test_wallet_address_from_index(&env, 2);
+    let b3 = test_wallet_address_from_index(&env, 3);
 
-    client.buy_key(&creator, &b1, &100);
-    client.buy_key(&creator, &b2, &100);
-    client.buy_key(&creator, &b3, &100);
+    client.buy_key(&creator, &b1, &100, &None);
+    client.buy_key(&creator, &b2, &100, &None);
+    client.buy_key(&creator, &b3, &100, &None);
 
     let bal1 = client.get_key_balance(&creator, &b1);
     let bal2 = client.get_key_balance(&creator, &b2);
@@ -101,9 +138,9 @@ fn test_supply_multiple_buys_per_holder_sum_equals_total() {
     let b1 = Address::generate(&env);
     let b2 = Address::generate(&env);
 
-    client.buy_key(&creator, &b1, &100);
-    client.buy_key(&creator, &b1, &100);
-    client.buy_key(&creator, &b2, &100);
+    client.buy_key(&creator, &b1, &100, &None);
+    client.buy_key(&creator, &b1, &100, &None);
+    client.buy_key(&creator, &b2, &100, &None);
 
     let bal1 = client.get_key_balance(&creator, &b1);
     let bal2 = client.get_key_balance(&creator, &b2);
@@ -128,18 +165,21 @@ fn test_supply_mixed_trades_three_participants() {
     let carol = Address::generate(&env);
 
     // Alice buys 2, Bob buys 1, Carol buys 2
-    client.buy_key(&creator, &alice, &100);
-    client.buy_key(&creator, &alice, &100);
-    client.buy_key(&creator, &bob, &100);
-    client.buy_key(&creator, &carol, &100);
-    client.buy_key(&creator, &carol, &100);
+    client.buy_key(&creator, &alice, &100, &None);
+    client.buy_key(&creator, &alice, &100, &None);
+    client.buy_key(&creator, &bob, &100, &None);
+    client.buy_key(&creator, &carol, &100, &None);
+    client.buy_key(&creator, &carol, &100, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 5);
 
     // Alice sells 1, Carol sells 2
-    client.sell_key(&creator, &alice);
-    client.sell_key(&creator, &carol);
-    client.sell_key(&creator, &carol);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &alice, &None);
+    client.sell_key(&creator, &carol, &None);
+    client.sell_key(&creator, &carol, &None);
 
     let bal_alice = client.get_key_balance(&creator, &alice);
     let bal_bob = client.get_key_balance(&creator, &bob);
@@ -159,12 +199,15 @@ fn test_supply_never_goes_below_zero_after_all_sells() {
     let (client, creator) = setup(&env, 100);
 
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &100);
-    client.buy_key(&creator, &buyer, &100);
-    client.buy_key(&creator, &buyer, &100);
-    client.sell_key(&creator, &buyer);
-    client.sell_key(&creator, &buyer);
-    client.sell_key(&creator, &buyer);
+    client.buy_key(&creator, &buyer, &100, &None);
+    client.buy_key(&creator, &buyer, &100, &None);
+    client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
+    client.sell_key(&creator, &buyer, &None);
+    client.sell_key(&creator, &buyer, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
 }
@@ -179,9 +222,12 @@ fn test_supply_changes_for_one_creator_do_not_affect_another() {
 
     let buyer = Address::generate(&env);
 
-    client.buy_key(&creator_a, &buyer, &100);
-    client.buy_key(&creator_a, &buyer, &100);
-    client.sell_key(&creator_a, &buyer);
+    client.buy_key(&creator_a, &buyer, &100, &None);
+    client.buy_key(&creator_a, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator_a, &buyer, &None);
 
     // creator_b supply untouched
     assert_eq!(client.get_total_key_supply(&creator_b), 0);
@@ -198,14 +244,17 @@ fn test_holder_count_reflects_mixed_trade_correctly() {
     let b1 = Address::generate(&env);
     let b2 = Address::generate(&env);
 
-    client.buy_key(&creator, &b1, &100);
-    client.buy_key(&creator, &b2, &100);
+    client.buy_key(&creator, &b1, &100, &None);
+    client.buy_key(&creator, &b2, &100, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 2);
 
-    client.sell_key(&creator, &b1);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &b1, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
-    client.sell_key(&creator, &b2);
+    client.sell_key(&creator, &b2, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 0);
     assert_eq!(client.get_total_key_supply(&creator), 0);
 }
@@ -216,9 +265,12 @@ fn test_holder_count_unchanged_when_holder_still_has_keys() {
     let (client, creator) = setup(&env, 100);
     let buyer = Address::generate(&env);
 
-    client.buy_key(&creator, &buyer, &100);
-    client.buy_key(&creator, &buyer, &100);
-    client.sell_key(&creator, &buyer);
+    client.buy_key(&creator, &buyer, &100, &None);
+    client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
 
     // Buyer still holds 1 key — holder count must stay at 1
     assert_eq!(client.get_creator_holder_count(&creator), 1);

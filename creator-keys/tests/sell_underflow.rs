@@ -6,10 +6,11 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+    capture_snapshot, register_creator_keys, register_test_creator, set_key_price_for_tests,
+    test_env_with_auths,
 };
-use creator_keys::ContractError;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use creator_keys::{constants, ContractError};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 fn setup(env: &Env, price: i128) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
     let (client, _) = register_creator_keys(env);
@@ -50,7 +51,7 @@ fn test_sell_with_no_keys_returns_insufficient_balance() {
     let seller = Address::generate(&env);
 
     // seller never bought — balance is 0
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 }
 
@@ -60,15 +61,45 @@ fn test_sell_second_key_after_selling_last_returns_insufficient_balance() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &seller, &None);
 
     // No keys left — should be InsufficientBalance, not SellUnderflow
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 }
 
 // ── Normal sell path uses SellUnderflow only for arithmetic underflow ─────
+
+#[test]
+fn test_sell_registered_zero_supply_creator_returns_sell_underflow_without_state_change() {
+    let env = test_env_with_auths();
+    let (client, contract_id) = register_creator_keys(&env);
+    set_key_price_for_tests(&env, &client, 100);
+    let creator = register_test_creator(&env, &client, "alice");
+    let seller = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        let balance_key = constants::storage::holder_balance_key(&creator, &seller);
+        env.storage().persistent().set(&balance_key, &1_u32);
+    });
+
+    let before = capture_snapshot(&client, &creator, &seller);
+    assert_eq!(before.supply, 0, "setup: creator supply must be zero");
+    assert_eq!(
+        before.key_balance, 1,
+        "setup: seller balance must be nonzero"
+    );
+
+    let result = client.try_sell_key(&creator, &seller, &None);
+
+    assert_eq!(result, Err(Ok(ContractError::SellUnderflow)));
+    let after = capture_snapshot(&client, &creator, &seller);
+    before.assert_unchanged(&after);
+}
 
 #[test]
 fn test_sell_after_buy_succeeds_without_underflow_error() {
@@ -76,8 +107,11 @@ fn test_sell_after_buy_succeeds_without_underflow_error() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    let result = client.try_sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    let result = client.try_sell_key(&creator, &seller, &None);
 
     assert!(result.is_ok(), "expected Ok but got {:?}", result);
 }
@@ -88,11 +122,14 @@ fn test_sell_two_keys_succeeds_without_underflow_error() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    client.buy_key(&creator, &seller, &100);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.buy_key(&creator, &seller, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &seller, &None);
 
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert!(
         result.is_ok(),
         "second sell should succeed, got {:?}",
@@ -108,9 +145,12 @@ fn test_supply_and_balance_decremented_correctly_after_sell() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    client.buy_key(&creator, &seller, &100);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.buy_key(&creator, &seller, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &seller, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 1);
     assert_eq!(client.get_key_balance(&creator, &seller), 1);

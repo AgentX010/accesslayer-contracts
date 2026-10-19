@@ -23,6 +23,7 @@ fn test_zero_creator_bps_full_payment_to_creator_after_protocol_fee() {
     // contract allows (PROTOCOL_BPS_MAX = 5000). creator_bps=0 is not valid because
     // creator_bps + protocol_bps must equal 10000 and protocol_bps cannot exceed 5000.
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &5000u32, &5000u32);
 
     // Verify fee config is set correctly
@@ -42,7 +43,7 @@ fn test_zero_creator_bps_full_payment_to_creator_after_protocol_fee() {
 
     // Perform a buy with payment of 1000
     let payment_amount = 1000i128;
-    let supply = client.buy_key(&creator, &buyer, &payment_amount);
+    let supply = client.buy_key(&creator, &buyer, &payment_amount, &None);
     assert_eq!(supply, 1, "Supply should increment to 1");
 
     // Compute expected fees
@@ -70,6 +71,7 @@ fn test_zero_creator_bps_with_partial_protocol_fee() {
     // Set up: 0% creator fee, 20% protocol fee (0 bps creator, 2000 bps protocol)
     // This means creator gets 80% and protocol gets 20%
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     // Verify fee config
@@ -89,7 +91,7 @@ fn test_zero_creator_bps_with_partial_protocol_fee() {
 
     // Perform a buy
     let payment_amount = 1000i128;
-    client.buy_key(&creator, &buyer, &payment_amount);
+    client.buy_key(&creator, &buyer, &payment_amount, &None);
 
     // Compute fees
     let (creator_fee, protocol_fee) = client.compute_fees_for_payment(&payment_amount);
@@ -131,7 +133,7 @@ fn test_zero_protocol_bps_full_payment_to_creator() {
 
     // Perform a buy
     let payment_amount = 1000i128;
-    client.buy_key(&creator, &buyer, &payment_amount);
+    client.buy_key(&creator, &buyer, &payment_amount, &None);
 
     // Compute fees
     let (creator_fee, protocol_fee) = client.compute_fees_for_payment(&payment_amount);
@@ -168,7 +170,7 @@ fn test_zero_creator_bps_no_rounding_errors_with_odd_amounts() {
 
     // Perform a buy with an odd payment amount
     let payment_amount = 999i128;
-    client.buy_key(&creator, &buyer, &payment_amount);
+    client.buy_key(&creator, &buyer, &payment_amount, &None);
 
     // Compute fees
     let (creator_fee, protocol_fee) = client.compute_fees_for_payment(&payment_amount);

@@ -3,7 +3,7 @@
 mod contract_test_env;
 
 use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Env, String};
 
 #[test]
 fn test_get_creator_details_unregistered_returns_defaults() {
@@ -29,7 +29,18 @@ fn test_get_creator_details_registered_returns_correct_data() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     let details = client.get_creator_details(&creator);
     assert!(details.is_registered);
@@ -52,7 +63,7 @@ fn test_get_creator_details_updates_after_buy() {
     assert_eq!(initial_details.supply, 0);
 
     contract_test_env::set_key_price_for_tests(&env, &client, 100i128);
-    client.buy_key(&creator, &buyer, &100i128);
+    client.buy_key(&creator, &buyer, &100i128, &None);
 
     let updated_details = client.get_creator_details(&creator);
     assert!(updated_details.is_registered);
@@ -81,7 +92,7 @@ fn test_get_creator_details_reflects_latest_state_after_buy_then_sell() {
 
     // State mutation 1: buy a key — supply must increment
     contract_test_env::set_key_price_for_tests(&env, &client, 100i128);
-    client.buy_key(&creator, &buyer, &100i128);
+    client.buy_key(&creator, &buyer, &100i128, &None);
 
     let details_after_buy = client.get_creator_details(&creator);
     assert_eq!(
@@ -92,7 +103,10 @@ fn test_get_creator_details_reflects_latest_state_after_buy_then_sell() {
     assert_eq!(details_after_buy.handle, String::from_str(&env, "bob"));
 
     // State mutation 2: sell the key back — supply must decrement
-    client.sell_key(&creator, &buyer);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &buyer, &None);
 
     let details_after_sell = client.get_creator_details(&creator);
     assert_eq!(

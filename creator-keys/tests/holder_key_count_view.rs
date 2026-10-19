@@ -9,7 +9,18 @@ fn setup_with_creator(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Add
     let admin = Address::generate(env);
     let creator = Address::generate(env);
     client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator, &String::from_str(env, "test"));
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "test"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     (client, creator, admin)
 }
 
@@ -41,13 +52,13 @@ fn test_holder_key_count_view_increments_on_buy() {
     assert_eq!(view.key_count, 0);
 
     // First purchase
-    client.buy_key(&creator, &holder, &100i128);
+    client.buy_key(&creator, &holder, &100i128, &None);
     let view = client.get_holder_key_count(&creator, &holder);
     assert_eq!(view.key_count, 1);
     assert!(view.creator_exists);
 
     // Second purchase
-    client.buy_key(&creator, &holder, &100i128);
+    client.buy_key(&creator, &holder, &100i128, &None);
     let view = client.get_holder_key_count(&creator, &holder);
     assert_eq!(view.key_count, 2);
 }
@@ -62,12 +73,12 @@ fn test_holder_key_count_view_multiple_holders() {
     let holder_b = Address::generate(&env);
 
     // Holder A buys 3 keys
-    client.buy_key(&creator, &holder_a, &100i128);
-    client.buy_key(&creator, &holder_a, &100i128);
-    client.buy_key(&creator, &holder_a, &100i128);
+    client.buy_key(&creator, &holder_a, &100i128, &None);
+    client.buy_key(&creator, &holder_a, &100i128, &None);
+    client.buy_key(&creator, &holder_a, &100i128, &None);
 
     // Holder B buys 1 key
-    client.buy_key(&creator, &holder_b, &100i128);
+    client.buy_key(&creator, &holder_b, &100i128, &None);
 
     // Verify holder A has 3 keys
     let view_a = client.get_holder_key_count(&creator, &holder_a);
@@ -108,8 +119,8 @@ fn test_holder_key_count_view_registered_creator_unseen_wallet() {
     let unseen_wallet = Address::generate(&env);
 
     // Holder with keys buys some keys
-    client.buy_key(&creator, &holder_with_keys, &100i128);
-    client.buy_key(&creator, &holder_with_keys, &100i128);
+    client.buy_key(&creator, &holder_with_keys, &100i128, &None);
+    client.buy_key(&creator, &holder_with_keys, &100i128, &None);
 
     // Unseen wallet should have zero keys
     let view = client.get_holder_key_count(&creator, &unseen_wallet);
@@ -126,9 +137,9 @@ fn test_holder_key_count_view_consistency_with_get_key_balance() {
     let holder = Address::generate(&env);
 
     // Buy some keys
-    client.buy_key(&creator, &holder, &100i128);
-    client.buy_key(&creator, &holder, &100i128);
-    client.buy_key(&creator, &holder, &100i128);
+    client.buy_key(&creator, &holder, &100i128, &None);
+    client.buy_key(&creator, &holder, &100i128, &None);
+    client.buy_key(&creator, &holder, &100i128, &None);
 
     // Both methods should return the same key count
     let view = client.get_holder_key_count(&creator, &holder);
@@ -145,8 +156,8 @@ fn test_holder_key_count_view_no_state_mutation() {
     let holder = Address::generate(&env);
 
     // Buy some keys first
-    client.buy_key(&creator, &holder, &100i128);
-    client.buy_key(&creator, &holder, &100i128);
+    client.buy_key(&creator, &holder, &100i128, &None);
+    client.buy_key(&creator, &holder, &100i128, &None);
 
     // Multiple reads should return the same result (no mutation)
     let view1 = client.get_holder_key_count(&creator, &holder);
@@ -172,12 +183,34 @@ fn test_holder_key_count_view_zero_keys_different_creators() {
     let holder = Address::generate(&env);
 
     client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator_a, &String::from_str(&env, "alice"));
-    client.register_creator(&creator_b, &String::from_str(&env, "bob"));
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_a.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_b.clone(),
+            handle: String::from_str(&env, "bob"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     // Holder buys keys only from creator A
-    client.buy_key(&creator_a, &holder, &100i128);
-    client.buy_key(&creator_a, &holder, &100i128);
+    client.buy_key(&creator_a, &holder, &100i128, &None);
+    client.buy_key(&creator_a, &holder, &100i128, &None);
 
     // Check holder has 0 keys for creator B
     let view_b = client.get_holder_key_count(&creator_b, &holder);
@@ -198,7 +231,7 @@ fn test_holder_key_count_view_structure_fields() {
     let (client, creator, _admin) = setup_with_creator(&env);
     let holder = Address::generate(&env);
 
-    client.buy_key(&creator, &holder, &100i128);
+    client.buy_key(&creator, &holder, &100i128, &None);
 
     let view = client.get_holder_key_count(&creator, &holder);
 

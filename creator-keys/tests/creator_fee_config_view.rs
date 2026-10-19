@@ -28,7 +28,18 @@ fn test_get_creator_fee_config_registered_no_fee_config() {
 
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
-    client.register_creator(&creator, &handle);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     let view = client.get_creator_fee_config(&creator);
 
@@ -47,10 +58,22 @@ fn test_get_creator_fee_config_registered_with_fee_config() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let view = client.get_creator_fee_config(&creator);
@@ -70,10 +93,22 @@ fn test_get_creator_fee_config_is_read_only() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let v1 = client.get_creator_fee_config(&creator);
@@ -94,10 +129,22 @@ fn test_get_creator_fee_config_updates_after_fee_reconfiguration() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let v1 = client.get_creator_fee_config(&creator);
@@ -119,13 +166,36 @@ fn test_get_creator_fee_config_multiple_creators_independent() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator1 = soroban_sdk::Address::generate(&env);
     let creator2 = soroban_sdk::Address::generate(&env);
     let handle1 = String::from_str(&env, "creator_one");
     let handle2 = String::from_str(&env, "creator_two");
 
-    client.register_creator(&creator1, &handle1);
-    client.register_creator(&creator2, &handle2);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator1.clone(),
+            handle: handle1.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator2.clone(),
+            handle: handle2.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let view1 = client.get_creator_fee_config(&creator1);
@@ -146,6 +216,7 @@ fn test_get_creator_fee_config_unregistered_after_fee_config_set() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let unregistered_creator = soroban_sdk::Address::generate(&env);
 
     client.set_fee_config(&admin, &9000u32, &1000u32);

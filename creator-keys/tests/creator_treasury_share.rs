@@ -11,9 +11,21 @@ fn test_get_creator_treasury_share_returns_configured_value() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     assert_eq!(client.get_creator_treasury_share(&creator), 9000);
@@ -27,9 +39,21 @@ fn test_get_creator_treasury_share_is_read_only() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let first = client.get_creator_treasury_share(&creator);

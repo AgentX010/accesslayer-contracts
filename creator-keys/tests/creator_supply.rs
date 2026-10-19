@@ -11,7 +11,18 @@ fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address) {
     client.set_key_price(&admin, &100_i128);
 
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, "alice"));
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     (client, admin, creator)
 }
@@ -25,8 +36,8 @@ fn test_get_creator_supply_returns_current_supply() {
     let buyer_one = Address::generate(&env);
     let buyer_two = Address::generate(&env);
 
-    client.buy_key(&creator, &buyer_one, &100_i128);
-    client.buy_key(&creator, &buyer_two, &100_i128);
+    client.buy_key(&creator, &buyer_one, &100_i128, &None);
+    client.buy_key(&creator, &buyer_two, &100_i128, &None);
 
     assert_eq!(client.get_creator_supply(&creator), 2);
 }
@@ -38,7 +49,7 @@ fn test_get_creator_supply_is_read_only() {
 
     let (client, _admin, creator) = setup(&env);
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &100_i128);
+    client.buy_key(&creator, &buyer, &100_i128, &None);
 
     let first_read = client.get_creator_supply(&creator);
     let second_read = client.get_creator_supply(&creator);

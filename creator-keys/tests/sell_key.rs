@@ -7,7 +7,7 @@ use contract_test_env::{
     test_env_with_auths, DEFAULT_TEST_TIMESTAMP,
 };
 use creator_keys::{ContractError, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address) {
     let (client, _) = register_creator_keys(env);
@@ -22,10 +22,13 @@ fn test_sell_key_decrements_supply_and_balance() {
     let (client, creator) = setup(&env);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100_i128);
-    client.buy_key(&creator, &seller, &100_i128);
+    client.buy_key(&creator, &seller, &100_i128, &None);
+    client.buy_key(&creator, &seller, &100_i128, &None);
 
-    let new_supply = client.sell_key(&creator, &seller);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    let new_supply = client.sell_key(&creator, &seller, &None);
 
     assert_eq!(new_supply, 1);
     assert_eq!(client.get_total_key_supply(&creator), 1);
@@ -38,10 +41,13 @@ fn test_sell_key_removes_holder_when_last_key_is_sold() {
     let (client, creator) = setup(&env);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100_i128);
+    client.buy_key(&creator, &seller, &100_i128, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
-    let new_supply = client.sell_key(&creator, &seller);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    let new_supply = client.sell_key(&creator, &seller, &None);
 
     assert_eq!(new_supply, 0);
     assert_eq!(client.get_total_key_supply(&creator), 0);
@@ -55,11 +61,14 @@ fn test_sell_key_preserves_holder_count_when_seller_still_has_keys() {
     let (client, creator) = setup(&env);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100_i128);
-    client.buy_key(&creator, &seller, &100_i128);
+    client.buy_key(&creator, &seller, &100_i128, &None);
+    client.buy_key(&creator, &seller, &100_i128, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
-    let new_supply = client.sell_key(&creator, &seller);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    let new_supply = client.sell_key(&creator, &seller, &None);
 
     assert_eq!(new_supply, 1);
     assert_eq!(client.get_key_balance(&creator, &seller), 1);
@@ -74,7 +83,7 @@ fn test_sell_key_fails_for_unregistered_creator() {
     let creator = Address::generate(&env);
     let seller = Address::generate(&env);
 
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
@@ -84,7 +93,7 @@ fn test_sell_key_fails_when_seller_has_no_keys() {
     let (client, creator) = setup(&env);
     let seller = Address::generate(&env);
 
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 }
 
@@ -95,12 +104,15 @@ fn test_sell_reverts_when_seller_has_insufficient_balance() {
     let seller = Address::generate(&env);
 
     // Seller buys 1 key.
-    client.buy_key(&creator, &seller, &100_i128);
+    client.buy_key(&creator, &seller, &100_i128, &None);
     assert_eq!(client.get_key_balance(&creator, &seller), 1);
     assert_eq!(client.get_total_key_supply(&creator), 1);
 
     // Seller sells their only key — this succeeds.
-    client.sell_key(&creator, &seller);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &seller, &None);
     assert_eq!(client.get_key_balance(&creator, &seller), 0);
     assert_eq!(client.get_total_key_supply(&creator), 0);
 
@@ -109,7 +121,7 @@ fn test_sell_reverts_when_seller_has_insufficient_balance() {
     let supply_before = client.get_total_key_supply(&creator);
 
     // Seller attempts to sell again — should revert with InsufficientBalance.
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 
     // Holder balance and total supply must be unchanged.
@@ -124,17 +136,20 @@ fn test_sell_full_exit_then_rebuy_updates_state() {
     let (client, creator) = setup(&env);
     let trader = Address::generate(&env);
 
-    client.buy_key(&creator, &trader, &100_i128);
+    client.buy_key(&creator, &trader, &100_i128, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
     assert_eq!(client.get_key_balance(&creator, &trader), 1);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
-    client.sell_key(&creator, &trader);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &trader, &None);
     assert_eq!(client.get_total_key_supply(&creator), 0);
     assert_eq!(client.get_key_balance(&creator, &trader), 0);
     assert_eq!(client.get_creator_holder_count(&creator), 0);
 
-    let supply_after_rebuy = client.buy_key(&creator, &trader, &100_i128);
+    let supply_after_rebuy = client.buy_key(&creator, &trader, &100_i128, &None);
     assert_eq!(supply_after_rebuy, 1);
 
     assert_eq!(client.get_total_key_supply(&creator), 1);
@@ -149,13 +164,51 @@ fn test_holder_count_returns_to_zero_after_last_holder_exit_and_rebuy() {
     let (client, creator) = setup(&env);
     let trader = Address::generate(&env);
 
-    client.buy_key(&creator, &trader, &100_i128);
+    client.buy_key(&creator, &trader, &100_i128, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
-    client.sell_key(&creator, &trader);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &trader, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 0);
 
-    let supply_after_rebuy = client.buy_key(&creator, &trader, &100_i128);
+    let supply_after_rebuy = client.buy_key(&creator, &trader, &100_i128, &None);
     assert_eq!(supply_after_rebuy, 1);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
+}
+
+#[test]
+fn test_multi_key_full_exit_decrements_holder_count_only_on_last_sell() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+    let seller = Address::generate(&env);
+
+    // Seller buys 3 keys.
+    client.buy_key(&creator, &seller, &100_i128, &None);
+    client.buy_key(&creator, &seller, &100_i128, &None);
+    client.buy_key(&creator, &seller, &100_i128, &None);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+    assert_eq!(client.get_key_balance(&creator, &seller), 3);
+
+    // Sell 2 keys — holder count stays unchanged.
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &seller, &None);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+    assert_eq!(client.get_key_balance(&creator, &seller), 2);
+
+    client.sell_key(&creator, &seller, &None);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+    assert_eq!(client.get_key_balance(&creator, &seller), 1);
+
+    // Sell the last key — holder count decrements.
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &seller, &None);
+    assert_eq!(client.get_creator_holder_count(&creator), 0);
+    assert_eq!(client.get_key_balance(&creator, &seller), 0);
+    assert_eq!(client.get_total_key_supply(&creator), 0);
 }

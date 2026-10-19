@@ -6,7 +6,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_stored_key_price, test_env_with_auths,
+    register_creator_keys, register_test_creator, set_stored_key_price, stroops_to_display_units,
+    test_env_with_auths,
 };
 use creator_keys::CreatorKeysContractClient;
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -18,7 +19,7 @@ fn register_holder_with_one_key(
 ) -> Address {
     let holder = Address::generate(env);
     let price = client.get_buy_quote(creator).price;
-    client.buy_key(creator, &holder, &price);
+    client.buy_key(creator, &holder, &price, &None);
     holder
 }
 
@@ -31,7 +32,7 @@ fn test_buy_key_with_large_safe_amount_succeeds() {
     let creator = register_test_creator(&env, &client, "creator1");
     let buyer = Address::generate(&env);
 
-    let supply = client.buy_key(&creator, &buyer, &large_price);
+    let supply = client.buy_key(&creator, &buyer, &large_price, &None);
     assert_eq!(supply, 1, "buy should succeed with large amount");
 }
 
@@ -44,7 +45,7 @@ fn test_buy_key_with_maximum_safe_i128_succeeds() {
     let creator = register_test_creator(&env, &client, "creator2");
     let buyer = Address::generate(&env);
 
-    let supply = client.buy_key(&creator, &buyer, &max_safe_amount);
+    let supply = client.buy_key(&creator, &buyer, &max_safe_amount, &None);
     assert_eq!(supply, 1, "buy should succeed at safe maximum");
 }
 
@@ -55,11 +56,13 @@ fn test_buy_quote_with_large_amount_succeeds() {
     let large_price = 500_000_000_000i128;
     set_stored_key_price(&env, &contract_id, large_price);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     let creator = register_test_creator(&env, &client, "creator3");
 
     let q = client.get_buy_quote(&creator);
     assert_eq!(q.price, large_price);
+    assert_eq!(stroops_to_display_units(q.price), 50_000);
 }
 
 #[test]
@@ -69,6 +72,7 @@ fn test_buy_quote_with_maximum_safe_amount_succeeds() {
     let max_safe_amount = 9_223_372_036_854_775i128;
     set_stored_key_price(&env, &contract_id, max_safe_amount);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     let creator = register_test_creator(&env, &client, "creator4");
 
@@ -84,12 +88,14 @@ fn test_sell_quote_with_large_amount_succeeds() {
     let large_price = 500_000_000_000i128;
     set_stored_key_price(&env, &contract_id, large_price);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     let creator = register_test_creator(&env, &client, "creator5");
     let holder = register_holder_with_one_key(&env, &client, &creator);
 
     let q = client.get_sell_quote(&creator, &holder);
     assert_eq!(q.price, large_price);
+    assert_eq!(stroops_to_display_units(q.price), 50_000);
 }
 
 #[test]
@@ -99,6 +105,7 @@ fn test_sell_quote_with_maximum_safe_amount_succeeds() {
     let max_safe_amount = 9_223_372_036_854_775i128;
     set_stored_key_price(&env, &contract_id, max_safe_amount);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     let creator = register_test_creator(&env, &client, "creator6");
     let holder = register_holder_with_one_key(&env, &client, &creator);
@@ -114,6 +121,7 @@ fn test_buy_quote_with_maximum_safe_amount_50_50_fees_succeeds() {
     let max_safe_amount = 9_223_372_036_854_775i128;
     set_stored_key_price(&env, &contract_id, max_safe_amount);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &5000u32, &5000u32);
     let creator = register_test_creator(&env, &client, "creator7");
 
@@ -132,6 +140,7 @@ fn test_sell_quote_with_maximum_safe_amount_50_50_fees_succeeds() {
     let max_safe_amount = 9_223_372_036_854_775i128;
     set_stored_key_price(&env, &contract_id, max_safe_amount);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &5000u32, &5000u32);
     let creator = register_test_creator(&env, &client, "creator8");
     let holder = register_holder_with_one_key(&env, &client, &creator);

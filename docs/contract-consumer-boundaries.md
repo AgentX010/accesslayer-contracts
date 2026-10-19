@@ -17,6 +17,7 @@ Stable structs returned by read-only methods are part of the integration contrac
 
 - **`ProtocolFeeView` / `get_protocol_fee_view`**: Non-optional fee configuration snapshot (`is_configured` plus bps). Used when you must not branch on `Option` at the type level.
 - **`CreatorDetailsView`**, **`CreatorFeeView`**, **`HolderKeyCountView`**: Registration and per-creator state without panicking on bad addresses.
+- **`KeyStatsView` / `get_key_stats`**: Single-call aggregated snapshot of all key-level fields (`current_price`, `circulating_supply`, `holder_count`, `trading_paused`, `supply_cap`, `holder_cap_bps`, `circuit_breaker_threshold_bps`, `lockup_duration_seconds`, `launch_penalty_bps`, `buy_cooldown_ledgers`, `max_buy_quantity`, and auction fields when configured). Server sync and admin snapshot endpoints should use this instead of assembling state from multiple individual reads. Returns `Err(ContractError::NotRegistered)` for unknown key IDs. See [read-only-methods.md](./read-only-methods.md) for full field semantics.
 - **Quotes** — `get_buy_quote` / `get_sell_quote` → `QuoteResponse` (`price`, `creator_fee`, `protocol_fee`, `total_amount`). **Buy** uses `total_amount = price + fees`; **sell** uses `total_amount = price - fees` (seller payout after fees, under current logic).
 - **Constants exposed as entrypoints** — e.g. `get_key_decimals` — must stay aligned with any off-chain display or formatting.
 
@@ -35,6 +36,41 @@ For any event payload or event name change, contributors should follow this comp
 - Coordinate with downstream indexers before deploying any event payload change; treat event payloads as a stable public API.
 
 For storage key details tied to creator registration metadata and ownership expectations, see [Storage Key Invariants](./storage-key-invariants.md).
+
+## Event field types and Soroban encoding format
+
+Contract events carry fields encoded in Soroban XDR format. Indexers and consumers need to know the specific type mappings for each field to decode them correctly.
+
+### register event
+
+Emitted when a creator is registered via `register_creator`.
+
+**Topics:** `(Symbol, Address)`
+- Index 0: `REGISTER_EVENT_NAME` (Symbol) - Event name identifier
+- Index 1: `creator` (Address) - Creator's Stellar address (32 bytes)
+
+**Data:** `CreatorRegisteredEvent` struct
+- `creator` (Address) - Creator's Stellar address (32 bytes)
+- `handle` (String) - Creator's handle string (variable length, UTF-8 encoded)
+- `supply` (u32) - Initial key supply (32-bit unsigned integer, always 0 at registration)
+- `holder_count` (u32) - Initial holder count (32-bit unsigned integer, always 0 at registration)
+
+**Type notes:** All fields use straightforward Soroban types matching their Rust definitions. The `supply` and `holder_count` fields are zero at registration time and increment with subsequent buy/sell operations.
+
+### buy event
+
+Emitted when a key is purchased via `buy_key`.
+
+**Topics:** `(Symbol, Address, Address)`
+- Index 0: `BUY_EVENT_NAME` (Symbol) - Event name identifier
+- Index 1: `creator` (Address) - Creator's Stellar address (32 bytes)
+- Index 2: `buyer` (Address) - Buyer's Stellar address (32 bytes)
+
+**Data:** Tuple `(u32, i128)`
+- `supply` (u32) - New total supply after purchase (32-bit unsigned integer)
+- `payment` (i128) - Payment amount in stroops (128-bit signed integer)
+
+**Type notes:** The `payment` field uses `i128` (signed 128-bit integer) to represent the payment amount in stroops (the smallest unit of XLM, 1 stroop = 0.0000001 XLM). This matches Soroban's standard token amount representation. The `supply` field is a `u32` representing the total number of keys minted for the creator.
 
 ## Compatibility expectations
 

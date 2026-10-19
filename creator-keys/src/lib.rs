@@ -242,6 +242,8 @@ pub enum ContractError {
 impl ContractError {
     #[allow(non_upper_case_globals)]
     pub const AlreadyInitialised: Self = Self::AlreadyInitialized;
+    #[allow(non_upper_case_globals)]
+    pub const TWAPInvalid: Self = Self::OraclePriceNotSet;
 }
 
 /// Errors raised by the staking entrypoints

@@ -154,7 +154,7 @@ fn test_distribute_no_key_holders() {
 #[test]
 fn test_distribute_filters_zero_balance_wallets() {
     let env = test_env_with_auths();
-    let (client, creator, holder_a, holder_b) = setup_test_context(&env);
+    let (client, creator, _, _) = setup_test_context(&env);
 
     // Setup another holder who buys then sells all keys
     let seller = Address::generate(&env);
@@ -209,7 +209,7 @@ fn test_snapshot_includes_staked_keys() {
 #[test]
 fn test_post_snapshot_trades_do_not_affect_shares() {
     let env = test_env_with_auths();
-    let (client, creator, holder_a, holder_b) = setup_test_context(&env);
+    let (client, creator, _, holder_b) = setup_test_context(&env);
 
     let dist_id = client.distribute_revenue(&creator, &1000i128);
 

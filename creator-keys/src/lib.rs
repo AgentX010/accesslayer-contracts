@@ -252,6 +252,17 @@ pub enum ContractError {
     TransferNotAccepted = 122,
     /// The proposed new owner already accepted this proposal.
     TransferAlreadyAccepted = 123,
+    // --- Notice-period key deprecation ---
+    /// No notice-period deprecation has been proposed for the supplied key.
+    NoDeprecationProposed = 124,
+    /// A notice-period deprecation has already been proposed for the supplied key.
+    DeprecationAlreadyProposed = 125,
+    /// `execute_deprecation` was called before the notice period elapsed.
+    DeprecationNoticePeriodActive = 126,
+    /// The notice period in days is invalid (zero or above the protocol ceiling).
+    InvalidNoticePeriod = 127,
+    /// The key's notice-period deprecation has already been executed.
+    DeprecationAlreadyExecuted = 128,
 }
 
 impl ContractError {
@@ -1695,6 +1706,20 @@ pub const MAX_GOVERNANCE_VIOLATION_PENALTY: i128 = 1_000;
 pub const MAX_SELL_TAX_BPS: u32 = 1_000;
 
 // ---------------------------------------------------------------------------
+// Notice-period key deprecation
+// ---------------------------------------------------------------------------
+
+/// Maximum notice period, in days, accepted by `propose_deprecation`.
+///
+/// Bounds the window during which holders can exit voluntarily so a retirement
+/// cannot be scheduled arbitrarily far in the future.
+pub const MAX_DEPRECATION_NOTICE_DAYS: u32 = 365;
+
+/// Number of seconds in a day, used to convert notice-period days to a Unix
+/// timestamp deadline.
+pub const SECONDS_PER_DAY: u64 = 86_400;
+
+// ---------------------------------------------------------------------------
 // Governance quorum escalation
 // ---------------------------------------------------------------------------
 
@@ -2170,6 +2195,17 @@ pub enum AnnouncementKey {
     Count(Address),
     /// (creator, announcement_id) -> `Announcement`.
     Record(Address, u32),
+}
+
+/// Storage keys for the notice-period deprecation flow.
+///
+/// Kept separate from [`DataKey`] to stay within Soroban's 50-variant
+/// `#[contracttype]` cap.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum DeprecationKey {
+    /// Creator -> `DeprecationProposal` for a key awaiting its unwind date.
+    Proposal(Address),
 }
 
 /// Storage keys for the cycle-based protocol revenue distribution (#877).
@@ -2711,6 +2747,48 @@ pub struct DeprecationStatus {
     pub deprecated_at_ledger: u32,
 }
 
+/// Record of a notice-period deprecation proposal.
+///
+/// Written by `propose_deprecation` and stored under
+/// `DeprecationKey::Proposal(creator)`. Holders may exit at the market rate
+/// until `unwind_at_timestamp`; after that point `execute_deprecation` unwinds
+/// every remaining position at the last traded price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationProposal {
+    /// Key (creator address) being retired.
+    pub key_id: Address,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Ledger sequence at which the proposal was recorded.
+    pub proposed_at_ledger: u32,
+    /// Unix timestamp at (or after) which `execute_deprecation` is allowed.
+    pub unwind_at_timestamp: u64,
+    /// Notice period length in days, echoing the admin's input.
+    pub notice_period_days: u32,
+    /// `true` once `execute_deprecation` has unwound the key.
+    pub executed: bool,
+}
+
+/// Return value for `execute_deprecation`.
+///
+/// Captures the outcome of an unwind so callers and indexers see the exact
+/// totals without a follow-up read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationExecution {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total number of key positions (across all holders) unwound.
+    pub total_positions_unwound: u32,
+    /// Total XLM distributed to holders during the unwind.
+    pub amount_distributed: i128,
+    /// Per-key price used for the unwind (last traded price).
+    pub unwind_price: i128,
+    /// Ledger sequence at which the unwind executed.
+    pub ledger: u32,
+}
+
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
     if config.addresses.len() > MAX_WHITELIST_SIZE {
         return Err(ContractError::WhitelistTooLarge);
@@ -3229,6 +3307,19 @@ fn emit_milestone_crossings(
 pub(crate) fn assert_not_paused(env: &Env) -> Result<(), ContractError> {
     if is_paused(env) {
         return Err(ContractError::ProtocolPaused);
+    }
+    Ok(())
+}
+
+/// Rejects new buys while a notice-period deprecation is pending or executed.
+///
+/// Once an admin proposes to retire a key, no new positions may be opened so
+/// the unwind cannot be gamed; holders can still sell at the market rate during
+/// the notice period.
+fn assert_key_not_deprecating(env: &Env, key_id: &Address) -> Result<(), ContractError> {
+    let key = DeprecationKey::Proposal(key_id.clone());
+    if env.storage().persistent().has(&key) {
+        return Err(ContractError::KeyDeprecated);
     }
     Ok(())
 }
@@ -5004,6 +5095,54 @@ fn current_spot_price(env: &Env, creator: &Address) -> i128 {
     }
 }
 
+/// Reads every wallet that has ever held keys for `creator`.
+///
+/// Returns an empty vector when no registry entry exists, mirroring
+/// [`CreatorKeysContract::get_holder_registry`] without bumping TTLs on the
+/// internal unwind path.
+fn read_holder_registry(env: &Env, creator: &Address) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Vec<Address>>(&constants::storage::holder_registry(creator))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Credits `amount` to a holder's internal payable (pending dividend) balance.
+///
+/// This contract has no SEP-41 transfer, so a payout is represented by adding
+/// to the holder's `HolderDividendPending` ledger, the established payout sink
+/// used by `claim_dividend_claimable`.
+fn credit_holder_pending_dividend(
+    env: &Env,
+    creator: &Address,
+    holder: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let pending_key = constants::storage::holder_dividend_pending(creator, holder);
+    let prior: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+    let updated = prior.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&pending_key, &updated);
+    extend_key_ttl_to_full_window(env, &pending_key);
+    Ok(())
+}
+
+/// Returns the last traded price for `creator`, used to unwind positions during
+/// a notice-period deprecation.
+///
+/// Prefers the most recent recorded price observation (the last price at which
+/// the key actually traded). Falls back to the current bonding-curve spot price
+/// when no trade has ever been recorded.
+fn last_traded_price(env: &Env, creator: &Address) -> i128 {
+    let history = read_price_history(env, creator);
+    match history.last() {
+        Some(observation) => observation.price,
+        None => current_spot_price(env, creator),
+    }
+}
+
 /// Computes the simple average of every price snapshot within the last
 /// `window_ledgers` ledgers, or `None` when fewer than two snapshots fall inside
 /// the window.
@@ -6399,6 +6538,7 @@ impl CreatorKeysContract {
         {
             return Err(ContractError::KeyDeprecated);
         }
+        assert_key_not_deprecating(&env, &creator)?;
 
         if quantity == 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -6972,6 +7112,7 @@ impl CreatorKeysContract {
         {
             return Err(ContractError::KeyDeprecated);
         }
+        assert_key_not_deprecating(&env, &creator)?;
 
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -7998,6 +8139,230 @@ impl CreatorKeysContract {
                 deprecated_at_ledger: 0,
             },
         }
+    }
+
+    /// Proposes the notice-period retirement of an inactive creator key.
+    ///
+    /// Admin-only. Records a [`DeprecationProposal`] with an unwind date
+    /// `notice_period_days` in the future and emits a `DeprecationProposed`
+    /// event carrying the key, reason, and unwind timestamp so holders are
+    /// notified. Holders may still exit voluntarily at the market rate via the
+    /// normal sell path for the duration of the notice period.
+    ///
+    /// # Arguments
+    ///
+    /// - `key_id`: the creator key to retire.
+    /// - `notice_period_days`: length of the notice window; must be in
+    ///   `1..=`[`MAX_DEPRECATION_NOTICE_DAYS`].
+    /// - `reason`: human-readable reason (max 256 bytes).
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `key_id` is not the calling admin.
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    /// - [`ContractError::InvalidNoticePeriod`] if `notice_period_days` is `0`
+    ///   or above [`MAX_DEPRECATION_NOTICE_DAYS`].
+    /// - [`ContractError::BioTooLong`] if `reason` exceeds 256 bytes.
+    /// - [`ContractError::DeprecationAlreadyProposed`] if a proposal already exists.
+    /// - [`ContractError::DeprecationAlreadyExecuted`] if the key was already retired.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn propose_deprecation(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        notice_period_days: u32,
+        reason: String,
+    ) -> Result<DeprecationProposal, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if notice_period_days == 0 || notice_period_days > MAX_DEPRECATION_NOTICE_DAYS {
+            return Err(ContractError::InvalidNoticePeriod);
+        }
+        if reason.len() > 256 {
+            return Err(ContractError::BioTooLong);
+        }
+
+        // A key must exist before it can be retired.
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let key = DeprecationKey::Proposal(key_id.clone());
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<DeprecationKey, DeprecationProposal>(&key)
+        {
+            return if existing.executed {
+                Err(ContractError::DeprecationAlreadyExecuted)
+            } else {
+                Err(ContractError::DeprecationAlreadyProposed)
+            };
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let notice_secs = u64::from(notice_period_days)
+            .checked_mul(SECONDS_PER_DAY)
+            .ok_or(ContractError::Overflow)?;
+        let unwind_at_timestamp = env
+            .ledger()
+            .timestamp()
+            .checked_add(notice_secs)
+            .ok_or(ContractError::Overflow)?;
+
+        let proposal = DeprecationProposal {
+            key_id: key_id.clone(),
+            reason: reason.clone(),
+            proposed_at_ledger: current_ledger,
+            unwind_at_timestamp,
+            notice_period_days,
+            executed: false,
+        };
+        env.storage().persistent().set(&key, &proposal);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::deprecation_proposed_topics(&key_id),
+            events::DeprecationProposedEvent {
+                key_id: key_id.clone(),
+                reason,
+                notice_period_days,
+                unwind_at_timestamp,
+                ledger: current_ledger,
+            },
+        );
+
+        Ok(proposal)
+    }
+
+    /// Executes a proposed deprecation once its notice period has elapsed.
+    ///
+    /// Admin-only. After the notice period, unwinds every remaining holder
+    /// position at the last traded price and credits each holder's payout to
+    /// their internal payable balance. Emits a `DeprecationExecuted` event with
+    /// the total positions unwound and the total amount distributed.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `key_id` is not the calling admin.
+    /// - [`ContractError::NoDeprecationProposed`] if no proposal exists.
+    /// - [`ContractError::DeprecationAlreadyExecuted`] if already retired.
+    /// - [`ContractError::DeprecationNoticePeriodActive`] if called before the
+    ///   notice period expires.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn execute_deprecation(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+    ) -> Result<DeprecationExecution, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let key = DeprecationKey::Proposal(key_id.clone());
+        let mut proposal: DeprecationProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NoDeprecationProposed)?;
+
+        if proposal.executed {
+            return Err(ContractError::DeprecationAlreadyExecuted);
+        }
+
+        let now = env.ledger().timestamp();
+        if now < proposal.unwind_at_timestamp {
+            return Err(ContractError::DeprecationNoticePeriodActive);
+        }
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)?;
+        let unwind_price = last_traded_price(&env, &key_id);
+
+        // Snapshot the registry before mutating balances so the unwind is
+        // computed against a stable holder list.
+        let registry = read_holder_registry(&env, &key_id);
+
+        let mut total_positions_unwound: u32 = 0;
+        let mut amount_distributed: i128 = 0;
+
+        for holder in registry.iter() {
+            let balance_key = constants::storage::holder_balance_key(&key_id, &holder);
+            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+
+            let payout = (balance as i128)
+                .checked_mul(unwind_price)
+                .ok_or(ContractError::Overflow)?;
+
+            // Settle pending dividends before the position is burned so earned
+            // dividends are not lost, then credit the unwind payout on top.
+            settle_holder_dividends(&env, &key_id, &holder, balance)?;
+            credit_holder_pending_dividend(&env, &key_id, &holder, payout)?;
+
+            env.storage().persistent().remove(&balance_key);
+            env.storage()
+                .persistent()
+                .remove(&constants::storage::staked_balance(&key_id, &holder));
+
+            total_positions_unwound = total_positions_unwound
+                .checked_add(balance)
+                .ok_or(ContractError::Overflow)?;
+            amount_distributed = amount_distributed
+                .checked_add(payout)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // The key is fully retired: no circulating supply or holders remain.
+        profile.supply = 0;
+        profile.holder_count = 0;
+        let profile_key = constants::storage::creator(&key_id);
+        env.storage().persistent().set(&profile_key, &profile);
+        extend_key_ttl_to_full_window(&env, &profile_key);
+
+        // Mark the key as deprecated so the buy path rejects new purchases.
+        let deprecated_key = constants::storage::deprecated_key(&key_id);
+        env.storage()
+            .persistent()
+            .set(&deprecated_key, &unwind_price);
+        extend_key_ttl_to_full_window(&env, &deprecated_key);
+
+        proposal.executed = true;
+        env.storage().persistent().set(&key, &proposal);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        let ledger = env.ledger().sequence();
+        env.events().publish(
+            events::deprecation_executed_topics(&key_id),
+            events::DeprecationExecutedEvent {
+                key_id: key_id.clone(),
+                total_positions_unwound,
+                amount_distributed,
+                unwind_price,
+                ledger,
+            },
+        );
+
+        Ok(DeprecationExecution {
+            key_id,
+            total_positions_unwound,
+            amount_distributed,
+            unwind_price,
+            ledger,
+        })
+    }
+
+    /// Read-only view: returns the pending or executed deprecation proposal for
+    /// a key, or `None` when no notice-period deprecation has been proposed.
+    pub fn get_deprecation_proposal(env: Env, key_id: Address) -> Option<DeprecationProposal> {
+        let key = DeprecationKey::Proposal(key_id);
+        let proposal = env
+            .storage()
+            .persistent()
+            .get::<DeprecationKey, DeprecationProposal>(&key)?;
+        extend_key_ttl_to_full_window(&env, &key);
+        Some(proposal)
     }
 
     /// Redeems all keys held by `holder` for a deprecated creator key.

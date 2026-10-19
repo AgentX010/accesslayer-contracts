@@ -1,4 +1,4 @@
-feat/liquidity-bootstrapping-1
+// feat/liquidity-bootstrapping-1
 use soroban_sdk::{contracttype, symbol_short, Address, Symbol}
 //! Centralized event names and helpers for consistent event emission.
 //!

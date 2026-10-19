@@ -4108,3 +4108,52 @@ pub struct KeyRatedEvent {
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
 }
+// ============================================================================
+// Liquidity Bootstrapping (#1117)
+// ============================================================================
+
+/// Event name emitted when liquidity bootstrapping starts for a key.
+pub const BOOTSTRAP_STARTED_EVENT_NAME: Symbol = symbol_short!("boot_strt");
+
+/// Event name emitted when liquidity bootstrapping ends and transitions to standard curve.
+pub const BOOTSTRAP_ENDED_EVENT_NAME: Symbol = symbol_short!("boot_end");
+
+/// Stable bootstrap started event payload.
+///
+/// Event shape:
+/// - topics: `(BOOTSTRAP_STARTED_EVENT_NAME, key_id)`
+/// - data: `BootstrapStartedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BootstrapStartedEvent {
+    pub key_id: Address,
+    pub start_price: i128,
+    pub end_price: i128,
+    pub start_time: u64,
+    pub duration_seconds: u64,
+    pub ledger: u32,
+}
+
+/// Shared bootstrap started event topics tuple.
+pub fn bootstrap_started_topics(key_id: &Address) -> (Symbol, Address) {
+    (BOOTSTRAP_STARTED_EVENT_NAME, key_id.clone())
+}
+
+/// Stable bootstrap ended event payload.
+///
+/// Event shape:
+/// - topics: `(BOOTSTRAP_ENDED_EVENT_NAME, key_id)`
+/// - data: `BootstrapEndedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BootstrapEndedEvent {
+    pub key_id: Address,
+    pub final_price: i128,
+    pub timestamp: u64,
+    pub ledger: u32,
+}
+
+/// Shared bootstrap ended event topics tuple.
+pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
+    (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
+}

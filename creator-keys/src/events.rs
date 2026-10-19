@@ -1115,17 +1115,11 @@ pub const CONFIG_CHANGE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("tl_exec");
 /// Event name for config change cancelled.
 pub const CONFIG_CHANGE_CANCELLED_EVENT_NAME: Symbol = symbol_short!("tl_canc");
 
-/// Event shape:
-/// - topics: `(CONFIG_CHANGE_PROPOSED_EVENT_NAME, proposer)`
-/// - data: `ConfigChangeProposedEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct ConfigChangeProposedEvent {
-    pub proposal_id: u32,
-    pub proposer: Address,
-    pub change_type: u32,
-    pub proposed_at: u32,
-    pub execution_not_before: u32,
+pub const CONFIG_CHANGE_CANCELLED_EVENT_NAME: Symbol = symbol_short!("tl_canc");
+
+/// Helper function to generate event topics for reputation updates
+pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
 }
 
 /// Event shape:
@@ -1139,6 +1133,7 @@ pub struct ConfigChangeExecutedEvent {
 }
 
 /// Event shape:
+
 /// - topics: `(CONFIG_CHANGE_CANCELLED_EVENT_NAME,)`
 /// - data: `ConfigChangeCancelledEvent`
 #[derive(Clone, Debug, Eq, PartialEq)]

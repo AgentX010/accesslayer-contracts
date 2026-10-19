@@ -2279,7 +2279,6 @@ pub struct RevenueShareView {
 }
 
 /// Storage keys for the per-creator holder leaderboard (issue #924).
-
 ///
 /// Kept separate from [`DataKey`] to follow the same convention as
 /// [`RevenueKey`] and [`StakingKey`]: new feature keys live in their own
@@ -10120,23 +10119,26 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns both claimable and claimed amounts for a wallet in a distribution (issue #1135).
-    pub fn get_revenue_share(
-        env: Env,
-        distribution_id: u32,
-        wallet: Address,
-    ) -> RevenueShareView {
+    pub fn get_revenue_share(env: Env, distribution_id: u32, wallet: Address) -> RevenueShareView {
         let share_key = RevenueShareKey::SnapshotShare(distribution_id, wallet.clone());
-        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
+        let share: i128 = env
+            .storage()
+            .persistent()
+            .get(&share_key)
+            .unwrap_or(0);
 
         let claimed_key = RevenueShareKey::Claimed(distribution_id, wallet);
-        let is_claimed: bool = env.storage().persistent().get(&claimed_key).unwrap_or(false);
+        let is_claimed: bool = env
+            .storage()
+            .persistent()
+            .get(&claimed_key)
+            .unwrap_or(false);
 
         RevenueShareView {
             claimable_amount: if is_claimed { 0 } else { share },
             claimed_amount: if is_claimed { share } else { 0 },
         }
     }
-
 
     /// Read-only view: returns a holder's snapshotted balance, or `0` if the
     /// holder was not included in the snapshot's `holders` list.

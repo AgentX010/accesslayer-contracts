@@ -4377,12 +4377,8 @@ pub struct RevenueShareClaimedEvent {
     pub amount: i128,
 }
 
-pub const REVENUE_SHARE_CLAIMED_DATA_FIELDS: [&str; 4] = [
-    "distribution_id",
-    "key_id",
-    "claimant",
-    "amount",
-];
+pub const REVENUE_SHARE_CLAIMED_DATA_FIELDS: [&str; 4] =
+    ["distribution_id", "key_id", "claimant", "amount"];
 
 /// Shared revenue share claimed event topics tuple.
 pub fn revenue_share_claimed_topics(

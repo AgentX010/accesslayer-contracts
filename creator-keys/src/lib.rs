@@ -234,24 +234,24 @@ pub enum ContractError {
     AnnouncementPageSizeExceeded = 115,
     /// An announcement index points to a record that is no longer available.
     AnnouncementRecordMissing = 116,
-    // --- Key ownership handover (Issue #1098) ---
-    /// No ownership-transfer proposal with that id exists (never existed, or it
-    /// has already been executed or cancelled).
-    TransferProposalNotFound = 117,
-    /// The key already has a live ownership-transfer proposal; execute or cancel
-    /// it before raising another one.
-    TransferAlreadyPending = 118,
-    /// The proposal was not accepted within the 48h acceptance window.
-    TransferWindowExpired = 119,
-    /// `execute_transfer` was called on a proposal the proposed new owner has
-    /// not accepted (which is also what an expired, unaccepted proposal reports).
-    TransferNotAccepted = 120,
-    /// The proposed new owner already accepted this proposal.
-    TransferAlreadyAccepted = 121,
     /// The wallet's keys are still inside an investor lock-up window.
     LockupActive = 117,
     /// No investor lock-up exists for the supplied wallet and key.
     LockupNotFound = 118,
+    // --- Key ownership handover (Issue #1098) ---
+    /// No ownership-transfer proposal with that id exists (never existed, or it
+    /// has already been executed or cancelled).
+    TransferProposalNotFound = 119,
+    /// The key already has a live ownership-transfer proposal; execute or cancel
+    /// it before raising another one.
+    TransferAlreadyPending = 120,
+    /// The proposal was not accepted within the 48h acceptance window.
+    TransferWindowExpired = 121,
+    /// `execute_transfer` was called on a proposal the proposed new owner has
+    /// not accepted (which is also what an expired, unaccepted proposal reports).
+    TransferNotAccepted = 122,
+    /// The proposed new owner already accepted this proposal.
+    TransferAlreadyAccepted = 123,
 }
 
 impl ContractError {

@@ -24,11 +24,17 @@ pub fn set_bootstrap_config(
     end_price: i128,
     duration_seconds: u64,
 ) {
-        let current_time = env.ledger().timestamp();
-        let config = BootstrapConfig {
-             start_time: current_time,
-             duration_seconds,
+    let current_time = env.ledger().timestamp();
+    let config = BootstrapConfig {
+        start_time: current_time,
+        duration_seconds,
     };
+
+    env.storage()
+        .persistent()
+        .set(&BootstrapDataKey::Config(key_id.clone()), &config);
+}
+
 
     env.storage()
         .persistent()

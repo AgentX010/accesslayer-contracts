@@ -28,7 +28,7 @@ use creator_keys::events::{
 };
 use creator_keys::{ContractError, CreatorKeysContractClient, RevenueShareView};
 use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
-use soroban_sdk::{Address, Env, IntoVal, Symbol, TryFromVal};
+use soroban_sdk::{Address, Env, IntoVal, Symbol};
 
 const KEY_PRICE: i128 = 1_000;
 
@@ -110,8 +110,10 @@ fn test_distribute_revenue_success_and_remainder_reconciliation() {
         .find(|(_, topics, _)| {
             topics
                 .get(0)
-                .and_then(|v| Symbol::try_from_val(&env, &v).ok())
-                .map(|s| s == REVENUE_DISTRIBUTED_EVENT_NAME)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == REVENUE_DISTRIBUTED_EVENT_NAME
+                })
                 .unwrap_or(false)
         })
         .expect("RevenueDistributedEvent not found");
@@ -289,8 +291,10 @@ fn test_claim_credits_pending_balance_and_prevents_double_claim() {
         .find(|(_, topics, _)| {
             topics
                 .get(0)
-                .and_then(|v| Symbol::try_from_val(&env, &v).ok())
-                .map(|s| s == REVENUE_SHARE_CLAIMED_EVENT_NAME)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == REVENUE_SHARE_CLAIMED_EVENT_NAME
+                })
                 .unwrap_or(false)
         })
         .expect("RevenueShareClaimedEvent not found");

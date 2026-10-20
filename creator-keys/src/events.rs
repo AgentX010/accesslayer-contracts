@@ -3518,7 +3518,6 @@ pub fn announcement_posted_topics(
         announcement_id,
     )
 }
- feat/liquidity-bootstrapping-1
 
 // --- Key ownership handover (#1098) ---
 

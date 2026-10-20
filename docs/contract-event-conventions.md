@@ -163,6 +163,25 @@ Notes for indexers:
 - `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
 - `updated_at` is the ledger timestamp in seconds.
 
+### Per-Key Dynamic Swap Fee Events (#1056)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `fee_adj` | `(Symbol("fee_adj"), key_id)` | `key_id`, `previous_fee_bps`, `new_fee_bps`, `rolling_volume`, `timestamp` | `struct FeeAdjustedEvent` |
+
+Notes for indexers:
+
+- `rolling_volume` is gross trade volume in the raw price base units at the
+  transition point. An expiry transition reports volume before the current
+  trade is added; a bracket crossing caused by that trade reports volume after
+  it is added.
+- Swaps select their fee from pre-trade volume. Fee changes caused by the
+  current swap apply to later swaps.
+- Time expiration and bracket updates do not autonomously emit events. A
+  later successful trade detects and emits the transition; reads never emit
+  or mutate.
+- No event is emitted if the fee bps is unchanged.
+
 ### Supply Milestone Fee Reduction Events (#1076)
 
 | Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
@@ -193,6 +212,22 @@ Notes for indexers:
 - `side` is the order book side (`OrderSide::Buy` = 0, `OrderSide::Sell` = 1).
 - `volume` is the remaining volume at this specific price level after the update.
 
+### Creator Key Vote Delegation Events (#1116)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `vote_del` | `(Symbol("vote_del"), key_id, holder)` | `holder`, `delegate_wallet`, `key_id`, `weight` | `struct VotingDelegated` |
+| `v_del_rev` | `(Symbol("v_del_rev"), key_id, holder)` | `holder`, `previous_delegate_wallet`, `key_id`, `weight` | `struct DelegationRevoked` |
+
+Notes for indexers:
+
+- `vote_del` is emitted by `delegate_votes` when a key holder assigns their voting weight on `key_id` to a proxy delegate wallet.
+- `v_del_rev` is emitted by `revoke_delegation` when a key holder revokes their voting delegation on `key_id`.
+- Topic index 1 is `key_id` (`Address`) and topic index 2 is `holder` (`Address`).
+- `weight` reports the key balance held by the delegator at delegation/revocation time.
+- Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+
 

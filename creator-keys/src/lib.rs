@@ -22110,7 +22110,6 @@ mod test_proxy;
 
 #[cfg(test)]
 mod test_announcements;
-feat/liquidity-bootstrapping-1
 pub fn create_bootstrap(
     env: Env,
     admin: Address,

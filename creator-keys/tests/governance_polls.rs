@@ -524,8 +524,7 @@ fn regression_vote_change_moves_weight_between_options_without_double_counting()
         "option 1 should be empty after first vote"
     );
     assert_eq!(
-        after_first.total_weight,
-        10,
+        after_first.total_weight, 10,
         "total weight should equal the voter's balance"
     );
 
@@ -547,8 +546,7 @@ fn regression_vote_change_moves_weight_between_options_without_double_counting()
     );
     // Total weight across all options must be unchanged — no double-counting.
     assert_eq!(
-        after_change.total_weight,
-        10,
+        after_change.total_weight, 10,
         "total vote weight must remain unchanged after vote change"
     );
 }

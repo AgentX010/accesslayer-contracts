@@ -92,8 +92,8 @@ pub struct Rule {
 pub struct CheckResult {
     /// True if the key satisfies all criteria of an active rule.
     pub eligible: bool,
-    /// The first matching active rule in registration order, if eligible.
-    pub rule: Option<Rule>,
+    /// The ID of the matching active rule in registration order, if eligible.
+    pub rule_id: Option<u64>,
 }
 
 /// Payload emitted for the `RuleRegistered` event.
@@ -331,7 +331,7 @@ impl AutoInvestRegistryContract {
                 if category_match && rating_match && price_match && holdings_match {
                     return CheckResult {
                         eligible: true,
-                        rule: Some(rule),
+                        rule_id: Some(rule.id),
                     };
                 }
             }
@@ -339,7 +339,7 @@ impl AutoInvestRegistryContract {
 
         CheckResult {
             eligible: false,
-            rule: None,
+            rule_id: None,
         }
     }
 

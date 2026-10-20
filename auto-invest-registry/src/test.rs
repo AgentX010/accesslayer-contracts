@@ -97,7 +97,7 @@ fn test_check_rule_with_context_eligibility_all_criteria() {
     // Matching key: eligible
     let result = client.check_rule_with_context(&wallet, &key_id, &2, &400, &4_000, &1);
     assert!(result.eligible);
-    assert_eq!(result.rule.unwrap().id, 1);
+    assert_eq!(result.rule_id.unwrap(), 1);
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn test_check_rule_delegates_to_context() {
     // check_rule with matching arguments delegates to check_rule_with_context
     let res = client.check_rule(&wallet, &key_id, &2, &400, &4_000, &1);
     assert!(res.eligible);
-    assert_eq!(res.rule.unwrap().id, 1);
+    assert_eq!(res.rule_id.unwrap(), 1);
 
     // check_rule with mismatching arguments returns ineligible
     let res_mismatch = client.check_rule(&wallet, &key_id, &2, &300, &4_000, &1);
@@ -124,7 +124,7 @@ fn test_check_rule_delegates_to_context() {
         res_mismatch,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 }
@@ -148,7 +148,7 @@ fn test_check_rule_criteria_mismatches() {
         res,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 
@@ -158,7 +158,7 @@ fn test_check_rule_criteria_mismatches() {
         res,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 
@@ -168,7 +168,7 @@ fn test_check_rule_criteria_mismatches() {
         res,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 
@@ -178,7 +178,7 @@ fn test_check_rule_criteria_mismatches() {
         res,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 
@@ -188,7 +188,7 @@ fn test_check_rule_criteria_mismatches() {
         res,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 }
@@ -217,7 +217,7 @@ fn test_non_wildcard_category_behavior() {
         res_diff,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 
@@ -227,7 +227,7 @@ fn test_non_wildcard_category_behavior() {
         res_zero,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 }
@@ -321,7 +321,7 @@ fn test_deactivated_rules_excluded_from_check_rule() {
         res2,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 }
@@ -355,12 +355,12 @@ fn test_check_rule_falls_through_deactivated_rule_to_next() {
 
     // Both match, Rule 1 is returned by FIFO registration order
     let res = client.check_rule_with_context(&wallet, &key_id, &1, &450, &5_000, &0);
-    assert_eq!(res.rule.unwrap().id, r1);
+    assert_eq!(res.rule_id.unwrap(), r1);
 
     // Deactivate Rule 1 -> now Rule 2 is returned
     client.deactivate_rule(&r1);
     let res2 = client.check_rule_with_context(&wallet, &key_id, &1, &450, &5_000, &0);
-    assert_eq!(res2.rule.unwrap().id, r2);
+    assert_eq!(res2.rule_id.unwrap(), r2);
 }
 
 // ============================================================================
@@ -621,7 +621,7 @@ fn test_check_rule_no_rules_returns_ineligible() {
         res,
         CheckResult {
             eligible: false,
-            rule: None
+            rule_id: None,
         }
     );
 }

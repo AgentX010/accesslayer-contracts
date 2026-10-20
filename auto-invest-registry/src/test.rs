@@ -369,7 +369,7 @@ fn test_check_rule_falls_through_deactivated_rule_to_next() {
 
 #[test]
 fn test_get_rules_registration_order() {
-    let (env, client, wallet) = setup_test();
+    let (_env, client, wallet) = setup_test();
 
     let c1 = Criteria {
         key_category: 1,
@@ -413,7 +413,7 @@ fn test_get_rules_registration_order() {
 
 #[test]
 fn test_get_rules_empty_for_new_wallet() {
-    let (env, client, wallet) = setup_test();
+    let (_env, client, wallet) = setup_test();
     let rules = client.get_rules(&wallet);
     assert_eq!(rules.len(), 0);
 }

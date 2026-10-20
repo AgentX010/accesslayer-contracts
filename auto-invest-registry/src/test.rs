@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Env, Symbol, Vec,
+    Address, Env, IntoVal, Symbol, Vec,
 };
 
 fn setup_test() -> (Env, AutoInvestRegistryContractClient<'static>, Address) {

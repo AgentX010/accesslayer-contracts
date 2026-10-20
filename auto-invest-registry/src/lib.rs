@@ -227,7 +227,7 @@ impl AutoInvestRegistryContract {
     /// Updates the criteria of an existing active rule.
     ///
     /// The rule owner must authorize the call. The rule owner and ID are immutable.
-    /// Updating a deactivated rule returns [`AutoInvestError::RuleDeactivated`].
+    /// Updating a deactivated rule returns [`AutoInvestError::Deactivated`].
     /// Emits a `RuleUpdated` event upon success.
     pub fn update_rule(env: Env, rule_id: u64, criteria: Criteria) -> Result<(), AutoInvestError> {
         let rule_key = DataKey::Rule(rule_id);

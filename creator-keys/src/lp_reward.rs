@@ -8,6 +8,7 @@ pub const MIN_REWARD_RATE_BPS: u32 = 1;
 /// Maximum reward rate a creator may set (5000 bps = 50%).
 pub const MAX_REWARD_RATE_BPS: u32 = 5_000;
 
+pub const LIQUIDITY_ADDED_EVENT_NAME: Symbol = symbol_short!("liq_add");
 pub const LP_ADDED_EVENT_NAME: Symbol = symbol_short!("LPAdded");
 pub const LP_CLAIMED_EVENT_NAME: Symbol = symbol_short!("lp_claim");
 pub const LP_REMOVED_EVENT_NAME: Symbol = symbol_short!("lp_rem");
@@ -346,7 +347,7 @@ pub fn remove_liquidity(env: &Env, lp_id: u64) -> Result<i128, LpRewardError> {
     if pending > 0 {
         env.events().publish(
             (
-                REWARDS_CLAIMED_EVENT_NAME,
+                LP_CLAIMED_EVENT_NAME,
                 position.key_id.clone(),
                 position.provider.clone(),
             ),
@@ -432,7 +433,7 @@ pub fn claim_lp_rewards(env: &Env, lp_id: u64) -> Result<i128, LpRewardError> {
 
     env.events().publish(
         (
-            REWARDS_CLAIMED_EVENT_NAME,
+            LP_CLAIMED_EVENT_NAME,
             position.key_id.clone(),
             position.provider.clone(),
         ),

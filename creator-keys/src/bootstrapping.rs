@@ -58,10 +58,7 @@ pub fn get_bootstrap_price_internal(env: &Env, key_id: &Address) -> Option<i128>
 
     let config: BootstrapConfig = env.storage().persistent().get(&storage_key).unwrap();
     let current_time = env.ledger().timestamp();
-    let expiration_time = config
-        .start_time
-        .checked_add(config.duration_seconds)
-        .unwrap_or(u64::MAX);
+    let expiration_time = config.start_time.saturating_add(config.duration_seconds);
 
     if current_time >= expiration_time {
         env.storage().persistent().remove(&storage_key);
@@ -85,38 +82,4 @@ pub fn get_bootstrap_price_internal(env: &Env, key_id: &Address) -> Option<i128>
 
     let reduction = (price_diff * elapsed as i128) / total_duration as i128;
     Some(config.start_price - reduction)
-}
-// ============================================================================
-// Liquidity Bootstrapping (#1117)
-// ============================================================================
-
-pub const BOOTSTRAP_STARTED_EVENT_NAME: Symbol = symbol_short!("boot_strt");
-pub const BOOTSTRAP_ENDED_EVENT_NAME: Symbol = symbol_short!("boot_end");
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct BootstrapStartedEvent {
-    pub key_id: Address,
-    pub start_price: i128,
-    pub end_price: i128,
-    pub start_time: u64,
-    pub duration_seconds: u64,
-    pub ledger: u32,
-}
-
-pub fn bootstrap_started_topics(key_id: &Address) -> (Symbol, Address) {
-    (BOOTSTRAP_STARTED_EVENT_NAME, key_id.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct BootstrapEndedEvent {
-    pub key_id: Address,
-    pub final_price: i128,
-    pub timestamp: u64,
-    pub ledger: u32,
-}
-
-pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
-    (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
 }

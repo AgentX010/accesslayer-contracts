@@ -21,7 +21,7 @@ pub mod bundle;
 pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
-pub mod events;
+
 pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
@@ -22117,7 +22117,7 @@ pub fn create_bootstrap(
     start_price: i128,
     end_price: i128,
     duration_seconds: u64,
-) -> Result<(), quote_view_errors::ContractError> {
+) -> Result<(), ContractError> {
     admin.require_auth();
     bootstrapping::set_bootstrap_config(&env, &key_id, start_price, end_price, duration_seconds);
     Ok(())
@@ -22128,7 +22128,5 @@ pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
     bootstrapping::get_bootstrap_price_internal(&env, &key_id)
 }
 
-
 #[cfg(test)]
 mod test_issue_1056;
-

@@ -6,8 +6,6 @@
 //!
 //! ### Event Schema Stability
 
-use soroban_sdk::{contracttype, symbol_short, Address, Symbol};
-
 use crate::{
     constants, extend_key_ttl_to_full_window, read_creator_supply, read_registered_creator_profile,
     CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, VaultAllocation,
@@ -1151,11 +1149,22 @@ pub const CONFIG_CHANGE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("tl_exec");
 /// Event name for config change cancelled.
 pub const CONFIG_CHANGE_CANCELLED_EVENT_NAME: Symbol = symbol_short!("tl_canc");
 
-pub const CONFIG_CHANGE_CANCELLED_EVENT_NAME: Symbol = symbol_short!("tl_canc");
-
 /// Helper function to generate event topics for reputation updates
 pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
     (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
+}
+
+/// Event shape:
+/// - topics: `(CONFIG_CHANGE_PROPOSED_EVENT_NAME, proposer)`
+/// - data: `ConfigChangeProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeProposedEvent {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub change_type: u32,
+    pub proposed_at: u32,
+    pub execution_not_before: u32,
 }
 
 /// Event shape:
@@ -1169,7 +1178,6 @@ pub struct ConfigChangeExecutedEvent {
 }
 
 /// Event shape:
-
 /// - topics: `(CONFIG_CHANGE_CANCELLED_EVENT_NAME,)`
 /// - data: `ConfigChangeCancelledEvent`
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3502,9 +3510,19 @@ pub struct ReputationUpdatedEvent {
     pub ledger: u32,
 }
 
-/// Helper function to generate event topics for reputation updates
-pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
-    (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
+/// Event name for a creator announcement being posted.
+pub const ANNOUNCEMENT_POSTED_EVENT_NAME: Symbol = symbol_short!("ann_post");
+
+/// Data emitted when a creator posts an announcement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AnnouncementPostedEvent {
+    pub key_id: Address,
+    pub announcement_id: u32,
+    pub title: String,
+    pub content_hash: String,
+    pub category: crate::AnnouncementCategory,
+    pub posted_at: u64,
 }
 
 /// Shared announcement event topics tuple.
@@ -3763,4 +3781,800 @@ pub fn publish_delegation_revoked(
             weight,
         },
     );
+}
+
+// --- Restored missing event definitions from origin/main ---
+
+pub const UNIQUE_TRADER_ADDED_EVENT_NAME: Symbol = symbol_short!("uniq_trd");
+
+/// Stable unique-trader event payload.
+///
+/// Event shape:
+/// - topics: `(UNIQUE_TRADER_ADDED_EVENT_NAME, key_id, trader)`
+/// - data: `UniqueTraderAddedEvent`
+///
+/// Emitted exactly once per `(key_id, trader)` pair, on that wallet's first
+/// buy or sell. Repeat trades from the same wallet emit nothing, so an indexer
+/// can count these events directly instead of de-duplicating trade events.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct UniqueTraderAddedEvent {
+    /// Creator whose keys were traded.
+    pub key_id: Address,
+    /// Wallet trading these keys for the first time.
+    pub trader: Address,
+    /// Unique trader count after this wallet was counted.
+    pub unique_trader_count: u64,
+    /// Ledger in which the first trade was recorded.
+    pub ledger: u32,
+}
+
+/// Shared unique-trader event topics tuple.
+pub fn unique_trader_added_topics(
+    key_id: &Address,
+    trader: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        UNIQUE_TRADER_ADDED_EVENT_NAME,
+        key_id.clone(),
+        trader.clone(),
+    )
+}
+
+// ============================================================================
+// Feature: key transfer allowances (approve / transfer_from)
+// ============================================================================
+
+/// Event name emitted when a holder sets or changes a transfer allowance.
+pub const APPROVAL_EVENT_NAME: Symbol = symbol_short!("approval");
+
+/// Stable approval event payload.
+///
+/// Event shape:
+/// - topics: `(APPROVAL_EVENT_NAME, owner, spender)`
+/// - data: `ApprovalEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ApprovalEvent {
+    /// Holder that granted the allowance.
+    pub owner: Address,
+    /// Address authorised to spend the allowance.
+    pub spender: Address,
+    /// Remaining allowance in whole keys after this call.
+    pub amount: u32,
+    /// Creator whose keys the allowance covers.
+    pub key_id: Address,
+    /// Ledger in which the approval was recorded.
+    pub ledger: u32,
+}
+
+/// Shared approval event topics tuple.
+pub fn approval_topics(owner: &Address, spender: &Address) -> (Symbol, Address, Address) {
+    (APPROVAL_EVENT_NAME, owner.clone(), spender.clone())
+}
+
+/// Event name emitted when a spender consumes an allowance via `transfer_from`.
+pub const TRANSFER_FROM_EVENT_NAME: Symbol = symbol_short!("xfer_from");
+
+/// Stable transfer-from event payload.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_FROM_EVENT_NAME, key_id, spender)`
+/// - data: `TransferFromEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferFromEvent {
+    /// Creator whose keys moved.
+    pub key_id: Address,
+    /// Address that consumed the allowance.
+    pub spender: Address,
+    /// Holder whose balance decreased.
+    pub from: Address,
+    /// Holder whose balance increased.
+    pub to: Address,
+    /// Number of keys transferred.
+    pub amount: u32,
+    /// Allowance remaining after the transfer.
+    pub remaining_allowance: u32,
+    /// Ledger in which the transfer executed.
+    pub ledger: u32,
+}
+
+/// Shared transfer-from event topics tuple.
+pub fn transfer_from_topics(key_id: &Address, spender: &Address) -> (Symbol, Address, Address) {
+    (TRANSFER_FROM_EVENT_NAME, key_id.clone(), spender.clone())
+}
+
+// ============================================================================
+// Feature: sell tax routed to the buyback pool
+// ============================================================================
+
+/// Event name emitted when a creator updates their per-key sell tax.
+pub const SELL_TAX_UPDATED_EVENT_NAME: Symbol = symbol_short!("tax_upd");
+
+/// Stable sell-tax-updated event payload.
+///
+/// Event shape:
+/// - topics: `(SELL_TAX_UPDATED_EVENT_NAME, creator)`
+/// - data: `SellTaxUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SellTaxUpdatedEvent {
+    /// Creator whose sell tax changed.
+    pub creator: Address,
+    /// Previous sell tax in basis points.
+    pub old_tax_bps: u32,
+    /// New sell tax in basis points.
+    pub new_tax_bps: u32,
+    /// Ledger in which the change was recorded.
+    pub ledger: u32,
+}
+
+/// Shared sell-tax-updated event topics tuple.
+pub fn sell_tax_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (SELL_TAX_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Event name emitted on every sell that collects a non-zero tax.
+pub const SELL_TAX_COLLECTED_EVENT_NAME: Symbol = symbol_short!("tax_col");
+
+/// Stable sell-tax-collected event payload.
+///
+/// Event shape:
+/// - topics: `(SELL_TAX_COLLECTED_EVENT_NAME, creator, seller)`
+/// - data: `SellTaxCollectedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SellTaxCollectedEvent {
+    /// Creator whose key was sold.
+    pub creator: Address,
+    /// Seller that paid the tax.
+    pub seller: Address,
+    /// Tax amount in XLM stroops, already forwarded to `pool`.
+    pub amount: i128,
+    /// Address credited with the tax.
+    pub pool: Address,
+    /// Tax rate applied in basis points.
+    pub tax_bps: u32,
+    /// Gross sell proceeds the tax was deducted from.
+    pub gross_proceeds: i128,
+    /// Proceeds actually delivered to the seller after the tax.
+    pub net_proceeds: i128,
+    /// Buyback pool balance after the tax was added.
+    pub pool_balance: i128,
+    /// Ledger in which the tax was collected.
+    pub ledger: u32,
+}
+
+/// Shared sell-tax-collected event topics tuple.
+pub fn sell_tax_collected_topics(
+    creator: &Address,
+    seller: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        SELL_TAX_COLLECTED_EVENT_NAME,
+        creator.clone(),
+        seller.clone(),
+    )
+}
+
+// ============================================================================
+// Feature: governance quorum escalation
+// ============================================================================
+
+/// Event name emitted each time a proposal's voting deadline is extended.
+pub const PROPOSAL_EXTENDED_EVENT_NAME: Symbol = symbol_short!("prop_ext");
+
+/// Stable proposal-extended event payload.
+///
+/// Event shape:
+/// - topics: `(PROPOSAL_EXTENDED_EVENT_NAME, creator_id, poll_id)`
+/// - data: `ProposalExtendedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProposalExtendedEvent {
+    /// Creator that owns the proposal.
+    pub creator_id: Address,
+    /// Proposal id, scoped to the creator.
+    pub poll_id: u32,
+    /// Deadline before the extension.
+    pub old_expires_at: u32,
+    /// Deadline after the extension.
+    pub new_expires_at: u32,
+    /// Extensions consumed after this call.
+    pub extensions_used: u32,
+    /// Maximum extensions allowed by the active config.
+    pub max_extensions: u32,
+    /// Ledger in which the extension was applied.
+    pub ledger: u32,
+}
+
+/// Shared proposal-extended event topics tuple.
+pub fn proposal_extended_topics(creator_id: &Address, poll_id: u32) -> (Symbol, Address, u32) {
+    (PROPOSAL_EXTENDED_EVENT_NAME, creator_id.clone(), poll_id)
+}
+
+/// Event name emitted when the protocol admin changes the escalation config.
+pub const ESCALATION_CONFIG_UPDATED_EVENT_NAME: Symbol = symbol_short!("esc_cfg");
+
+/// Stable escalation-config-updated event payload.
+///
+/// Event shape:
+/// - topics: `(ESCALATION_CONFIG_UPDATED_EVENT_NAME, admin)`
+/// - data: `EscalationConfigUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EscalationConfigUpdatedEvent {
+    /// Admin that applied the change.
+    pub admin: Address,
+    /// `true` when a config was already active before this call.
+    pub had_previous_config: bool,
+    /// Previously active threshold in basis points.
+    pub old_threshold_bps: u32,
+    /// Previously active extension duration in ledgers.
+    pub old_extension_ledgers: u32,
+    /// Previously active extension cap.
+    pub old_max_extensions: u32,
+    /// Newly active threshold in basis points.
+    pub new_threshold_bps: u32,
+    /// Newly active extension duration in ledgers.
+    pub new_extension_ledgers: u32,
+    /// Newly active extension cap.
+    pub new_max_extensions: u32,
+    /// Ledger in which the change was recorded.
+    pub ledger: u32,
+}
+
+/// Shared escalation-config-updated event topics tuple.
+pub fn escalation_config_updated_topics(admin: &Address) -> (Symbol, Address) {
+    (ESCALATION_CONFIG_UPDATED_EVENT_NAME, admin.clone())
+}
+
+// ============================================================================
+// Trade cooldown violation (issue #974)
+// ============================================================================
+
+/// Event name emitted when a buy or sell is blocked by the per-wallet trade
+/// cooldown configured via `set_cooldown`.
+pub const COOLDOWN_VIOLATION_EVENT_NAME: Symbol = symbol_short!("cd_viol");
+
+/// Event name emitted when a creator updates their trade cooldown duration via
+/// `set_cooldown`.
+pub const COOLDOWN_SET_EVENT_NAME: Symbol = symbol_short!("cd_set");
+
+/// Payload for a blocked trade due to the per-wallet trade cooldown (issue #974).
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_VIOLATION_EVENT_NAME, creator_id, wallet)`
+/// - data: `CooldownViolationEvent`
+///
+/// Emitted inside `buy_keys_with_referrer` and `sell_key` when a trade is
+/// rejected because the per-wallet cooldown window has not yet elapsed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownViolationEvent {
+    /// Wallet whose trade was blocked.
+    pub wallet: Address,
+    /// Creator whose key was being traded.
+    pub creator_id: Address,
+    /// Unix timestamp at which the cooldown expires and trading resumes.
+    pub expires_at: u64,
+    /// Seconds remaining until the cooldown expires.
+    pub seconds_remaining: u64,
+}
+
+/// Shared cooldown-violation event topics tuple.
+pub fn cooldown_violation_topics(
+    creator: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        COOLDOWN_VIOLATION_EVENT_NAME,
+        creator.clone(),
+        wallet.clone(),
+    )
+}
+
+/// Payload emitted when a creator sets (or updates) their trade cooldown
+/// duration via `set_cooldown` (issue #974).
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_SET_EVENT_NAME, creator_id)`
+/// - data: `CooldownSetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownSetEvent {
+    /// Creator whose cooldown was updated.
+    pub creator_id: Address,
+    /// New cooldown duration in seconds (`0` disables the cooldown).
+    pub duration_secs: u64,
+}
+
+/// Shared cooldown-set event topics tuple.
+pub fn cooldown_set_topics(creator: &Address) -> (Symbol, Address) {
+    (COOLDOWN_SET_EVENT_NAME, creator.clone())
+}
+
+/// Event name for configuring a graduated bonding curve with supply milestones.
+pub const GRADUATED_CURVE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("grad_crv");
+
+/// Stable graduated curve configured event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GraduatedCurveConfiguredEvent {
+    /// Creator whose curve was configured.
+    pub creator: Address,
+    /// All milestone `(supply_threshold, exponent)` pairs.
+    pub milestones: Vec<(u32, u32)>,
+    /// Ledger sequence at the time of configuration.
+    pub ledger: u32,
+}
+
+/// Shared graduated curve configured event topics tuple.
+pub fn graduated_curve_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (GRADUATED_CURVE_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
+// ============================================================================
+// Feature: leaderboard snapshot — top holder rankings (issue #924)
+// ============================================================================
+
+/// Event name emitted when a leaderboard snapshot is recorded.
+pub const LEADERBOARD_SNAPSHOT_TAKEN_EVENT_NAME: Symbol = symbol_short!("ldbrd_tk");
+
+/// Stable leaderboard-snapshot-taken event payload.
+///
+/// Event shape:
+/// - topics: `(LEADERBOARD_SNAPSHOT_TAKEN_EVENT_NAME, creator_id, snapshot_ledger)`
+/// - data: `LeaderboardSnapshotTakenEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LeaderboardSnapshotTakenEvent {
+    /// Creator whose holder balances were ranked.
+    pub creator_id: Address,
+    /// Ledger sequence the snapshot was taken at.
+    pub snapshot_ledger: u32,
+    /// Leaderboard size `N` in effect when the snapshot was taken.
+    pub top_n: u32,
+    /// Number of candidate wallets holding at least one key.
+    pub total_candidates: u32,
+    /// Number of ranked entries actually stored (at most `top_n`).
+    pub recorded_entries: u32,
+}
+
+/// Shared leaderboard-snapshot-taken event topics tuple.
+pub fn leaderboard_snapshot_taken_topics(
+    creator_id: &Address,
+    snapshot_ledger: u32,
+) -> (Symbol, Address, u32) {
+    (
+        LEADERBOARD_SNAPSHOT_TAKEN_EVENT_NAME,
+        creator_id.clone(),
+        snapshot_ledger,
+    )
+}
+
+/// Event name emitted when an aged-out leaderboard snapshot is pruned.
+pub const LEADERBOARD_SNAPSHOT_PRUNED_EVENT_NAME: Symbol = symbol_short!("ldbrd_pr");
+
+/// Stable leaderboard-snapshot-pruned event payload.
+///
+/// Event shape:
+/// - topics: `(LEADERBOARD_SNAPSHOT_PRUNED_EVENT_NAME, creator_id, snapshot_ledger)`
+/// - data: `LeaderboardSnapshotPrunedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LeaderboardSnapshotPrunedEvent {
+    /// Creator the pruned snapshot belonged to.
+    pub creator_id: Address,
+    /// Ledger sequence of the pruned snapshot.
+    pub snapshot_ledger: u32,
+    /// Ledger in which the pruning happened.
+    pub current_ledger: u32,
+}
+
+/// Shared leaderboard-snapshot-pruned event topics tuple.
+pub fn leaderboard_snapshot_pruned_topics(
+    creator_id: &Address,
+    snapshot_ledger: u32,
+) -> (Symbol, Address, u32) {
+    (
+        LEADERBOARD_SNAPSHOT_PRUNED_EVENT_NAME,
+        creator_id.clone(),
+        snapshot_ledger,
+    )
+}
+
+/// Event name emitted when the protocol admin updates the leaderboard config.
+pub const LEADERBOARD_CONFIG_UPDATED_EVENT_NAME: Symbol = symbol_short!("ldbrd_cf");
+
+/// Stable leaderboard-config-updated event payload.
+///
+/// Event shape:
+/// - topics: `(LEADERBOARD_CONFIG_UPDATED_EVENT_NAME, admin)`
+/// - data: `LeaderboardConfigUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LeaderboardConfigUpdatedEvent {
+    /// Admin that applied the change.
+    pub admin: Address,
+    /// Leaderboard size in effect before this call.
+    pub old_top_n: u32,
+    /// Retention window in ledgers before this call.
+    pub old_retention_ledgers: u32,
+    /// Leaderboard size after this call.
+    pub new_top_n: u32,
+    /// Retention window in ledgers after this call.
+    pub new_retention_ledgers: u32,
+    /// Ledger in which the change was recorded.
+    pub ledger: u32,
+}
+
+/// Shared leaderboard-config-updated event topics tuple.
+pub fn leaderboard_config_updated_topics(admin: &Address) -> (Symbol, Address) {
+    (LEADERBOARD_CONFIG_UPDATED_EVENT_NAME, admin.clone())
+}
+
+// --- Emergency platform pause events (#1000) ---
+
+/// Event name emitted when the platform-wide emergency halt activates.
+pub const PLATFORM_PAUSED_EVENT_NAME: Symbol = symbol_short!("plat_pau");
+
+/// Event name emitted when a platform resume is queued behind the 24h timelock.
+pub const PLATFORM_RESUME_QUEUED_EVENT_NAME: Symbol = symbol_short!("plat_rq");
+
+/// Event name emitted when the platform-wide emergency halt is lifted.
+pub const PLATFORM_RESUMED_EVENT_NAME: Symbol = symbol_short!("plat_res");
+
+/// Event name emitted when a per-key emergency pause override is set or cleared.
+pub const KEY_PAUSE_OVERRIDE_EVENT_NAME: Symbol = symbol_short!("key_pau");
+
+/// Stable field order for [`PlatformPausedEvent`].
+pub const PLATFORM_PAUSED_EVENT_DATA_FIELDS: [&str; 2] = ["actor", "timestamp"];
+
+/// Stable field order for [`PlatformResumeQueuedEvent`].
+pub const PLATFORM_RESUME_QUEUED_EVENT_DATA_FIELDS: [&str; 2] = ["actor", "executable_at"];
+
+/// Stable field order for [`PlatformResumedEvent`].
+pub const PLATFORM_RESUMED_EVENT_DATA_FIELDS: [&str; 2] = ["actor", "timestamp"];
+
+/// Stable field order for [`KeyPauseOverrideEvent`].
+pub const KEY_PAUSE_OVERRIDE_EVENT_DATA_FIELDS: [&str; 3] = ["key_id", "paused", "actor"];
+
+/// Stable platform-paused event payload.
+///
+/// Event shape:
+/// - topics: `(PLATFORM_PAUSED_EVENT_NAME, actor)`
+/// - data: `PlatformPausedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PlatformPausedEvent {
+    /// First signer of the multisig call.
+    pub actor: Address,
+    /// Ledger timestamp at which the halt took effect.
+    pub timestamp: u64,
+}
+
+/// Stable platform-resume-queued event payload.
+///
+/// Event shape:
+/// - topics: `(PLATFORM_RESUME_QUEUED_EVENT_NAME, actor)`
+/// - data: `PlatformResumeQueuedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PlatformResumeQueuedEvent {
+    /// First signer of the multisig call.
+    pub actor: Address,
+    /// Ledger timestamp from which `resume_platform` may execute.
+    pub executable_at: u64,
+}
+
+/// Stable platform-resumed event payload.
+///
+/// Event shape:
+/// - topics: `(PLATFORM_RESUMED_EVENT_NAME, actor)`
+/// - data: `PlatformResumedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PlatformResumedEvent {
+    /// First signer of the multisig call.
+    pub actor: Address,
+    /// Ledger timestamp at which the halt was lifted.
+    pub timestamp: u64,
+}
+
+/// Stable key-pause-override event payload.
+///
+/// Event shape:
+/// - topics: `(KEY_PAUSE_OVERRIDE_EVENT_NAME, key_id)`
+/// - data: `KeyPauseOverrideEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyPauseOverrideEvent {
+    /// Key whose override changed.
+    pub key_id: Address,
+    /// `true` when the key was paused, `false` when the override was cleared.
+    pub paused: bool,
+    /// First signer of the multisig call.
+    pub actor: Address,
+}
+
+/// Shared platform-paused event topics tuple.
+pub fn platform_paused_topics(actor: &Address) -> (Symbol, Address) {
+    (PLATFORM_PAUSED_EVENT_NAME, actor.clone())
+}
+
+/// Shared platform-resume-queued event topics tuple.
+pub fn platform_resume_queued_topics(actor: &Address) -> (Symbol, Address) {
+    (PLATFORM_RESUME_QUEUED_EVENT_NAME, actor.clone())
+}
+
+/// Shared platform-resumed event topics tuple.
+pub fn platform_resumed_topics(actor: &Address) -> (Symbol, Address) {
+    (PLATFORM_RESUMED_EVENT_NAME, actor.clone())
+}
+
+/// Shared key-pause-override event topics tuple.
+pub fn key_pause_override_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_PAUSE_OVERRIDE_EVENT_NAME, key_id.clone())
+}
+
+// --- Vault rebalancing ---
+
+/// Event name for a completed vault rebalance.
+pub const REBALANCE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("rebal");
+
+/// Stable field order for rebalance execution payloads.
+pub const REBALANCE_EXECUTED_DATA_FIELDS: [&str; 6] = [
+    "creator",
+    "trades",
+    "allocations",
+    "total_value",
+    "max_slippage_bps",
+    "ledger",
+];
+
+/// One trade executed by a vault rebalance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RebalanceTrade {
+    pub from_key: Address,
+    pub to_key: Address,
+    pub amount: i128,
+    pub reference_price: i128,
+    pub execution_price: i128,
+    pub slippage_bps: u32,
+}
+
+/// Stable rebalance execution payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RebalanceExecutedEvent {
+    pub creator: Address,
+    pub trades: Vec<RebalanceTrade>,
+    pub allocations: Vec<VaultAllocation>,
+    pub total_value: i128,
+    pub max_slippage_bps: u32,
+    pub ledger: u32,
+}
+
+/// Shared rebalance execution event topics tuple.
+pub fn rebalance_executed_topics(creator: &Address) -> (Symbol, Address) {
+    (REBALANCE_EXECUTED_EVENT_NAME, creator.clone())
+}
+
+// --- Dynamic fee tiers ---
+
+/// Event name for a dynamic fee tier transition.
+pub const FEE_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("fee_tier");
+
+/// Stable field order for fee tier transition payloads.
+pub const FEE_TIER_CHANGED_DATA_FIELDS: [&str; 5] = [
+    "old_tier_index",
+    "new_tier_index",
+    "old_protocol_bps",
+    "new_protocol_bps",
+    "ledger",
+];
+
+/// Stable fee tier transition payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeTierChangedEvent {
+    pub old_tier_index: u32,
+    pub new_tier_index: u32,
+    pub old_protocol_bps: u32,
+    pub new_protocol_bps: u32,
+    pub ledger: u32,
+}
+
+/// Sentinel tier index used before any dynamic fee tier has ever been resolved.
+pub const NO_FEE_TIER_INDEX: u32 = u32::MAX;
+
+// --- Staking and stake receipt NFT ---
+
+/// Event name for a minted stake receipt NFT.
+pub const STAKE_NFT_MINTED_EVENT_NAME: Symbol = symbol_short!("snft_mint");
+
+/// Event name for a burned stake receipt NFT.
+pub const STAKE_NFT_BURNED_EVENT_NAME: Symbol = symbol_short!("snft_burn");
+
+/// Event name for a stake receipt NFT transfer.
+pub const STAKE_NFT_TRANSFERRED_EVENT_NAME: Symbol = symbol_short!("transfer");
+
+/// Stable field order for stake receipt mint payloads.
+pub const STAKE_NFT_MINTED_DATA_FIELDS: [&str; 7] = [
+    "token_id",
+    "creator",
+    "stake_id",
+    "owner",
+    "amount",
+    "unlock_ledger",
+    "ledger",
+];
+
+/// Stable field order for stake receipt transfer payloads.
+pub const STAKE_NFT_TRANSFERRED_DATA_FIELDS: [&str; 7] = [
+    "token_id", "creator", "stake_id", "from", "to", "amount", "ledger",
+];
+
+/// Stable field order for stake receipt burn payloads.
+pub const STAKE_NFT_BURNED_DATA_FIELDS: [&str; 6] = [
+    "token_id", "creator", "stake_id", "owner", "amount", "ledger",
+];
+
+/// Stable stake receipt mint payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftMintedEvent {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub owner: Address,
+    pub amount: u32,
+    pub unlock_ledger: u32,
+    pub ledger: u32,
+}
+
+/// Stable stake receipt transfer payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftTransferredEvent {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Stable stake receipt burn payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftBurnedEvent {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub owner: Address,
+    pub amount: u32,
+    pub ledger: u32,
+}
+
+/// Shared stake receipt mint event topics tuple.
+pub fn stake_nft_minted_topics(creator: &Address, owner: &Address) -> (Symbol, Address, Address) {
+    (STAKE_NFT_MINTED_EVENT_NAME, creator.clone(), owner.clone())
+}
+
+/// Shared stake receipt transfer event topics tuple.
+pub fn stake_nft_transferred_topics(from: &Address, to: &Address) -> (Symbol, Address, Address) {
+    (STAKE_NFT_TRANSFERRED_EVENT_NAME, from.clone(), to.clone())
+}
+
+/// Shared stake receipt burn event topics tuple.
+pub fn stake_nft_burned_topics(creator: &Address, owner: &Address) -> (Symbol, Address, Address) {
+    (STAKE_NFT_BURNED_EVENT_NAME, creator.clone(), owner.clone())
+}
+
+// --- Bonding curve reset ---
+
+/// Event name for a bonding curve reset.
+pub const CURVE_RESET_EVENT_NAME: Symbol = symbol_short!("curve_rst");
+
+/// Stable field order for curve reset payloads.
+pub const CURVE_RESET_DATA_FIELDS: [&str; 7] = [
+    "creator",
+    "old_supply",
+    "new_supply",
+    "preset",
+    "slope",
+    "reset_count",
+    "ledger",
+];
+
+/// Stable curve reset payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CURVE_RESET_EVENT_NAME, creator)`
+/// - data: `CurveResetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveResetEvent {
+    /// Creator whose curve was reset.
+    pub creator: Address,
+    /// Supply immediately before the reset. Always `0`; a reset requires a full buyback.
+    pub old_supply: u32,
+    /// Supply immediately after the reset, the relaunch point.
+    pub new_supply: u32,
+    /// Curve shape applied from `new_supply` onwards.
+    pub preset: crate::CurvePreset,
+    /// Curve slope applied from `new_supply` onwards.
+    pub slope: i128,
+    /// Running count of successful resets for this creator.
+    pub reset_count: u32,
+    /// Ledger sequence number at reset time.
+    pub ledger: u32,
+}
+
+/// Shared curve reset event topics tuple.
+pub fn curve_reset_topics(creator: &Address) -> (Symbol, Address) {
+    (CURVE_RESET_EVENT_NAME, creator.clone())
+}
+
+// --- Key rating ---
+
+/// Event name for a key rating submission.
+pub const KEY_RATED_EVENT_NAME: Symbol = symbol_short!("key_rated");
+
+/// Event payload emitted when a key holder rates a creator.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyRatedEvent {
+    pub creator: Address,
+    pub rater: Address,
+    pub score: u32,
+    pub total_score: u64,
+    pub count: u32,
+    pub average_score_scaled: u32,
+    pub ledger: u32,
+}
+
+/// Shared key rated event topics tuple.
+pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
+    (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
+}
+
+// ============================================================================
+// Liquidity Bootstrapping (#1117)
+// ============================================================================
+
+pub const BOOTSTRAP_STARTED_EVENT_NAME: Symbol = symbol_short!("boot_strt");
+pub const BOOTSTRAP_ENDED_EVENT_NAME: Symbol = symbol_short!("boot_end");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BootstrapStartedEvent {
+    pub key_id: Address,
+    pub start_price: i128,
+    pub end_price: i128,
+    pub start_time: u64,
+    pub duration_seconds: u64,
+    pub ledger: u32,
+}
+
+pub fn bootstrap_started_topics(key_id: &Address) -> (Symbol, Address) {
+    (BOOTSTRAP_STARTED_EVENT_NAME, key_id.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BootstrapEndedEvent {
+    pub key_id: Address,
+    pub final_price: i128,
+    pub timestamp: u64,
+    pub ledger: u32,
+}
+
+pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
+    (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
 }

@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
@@ -35,22 +36,20 @@ pub const REGISTRY_TTL_EXTEND_TO: u32 = 518_400;
 pub enum AutoInvestError {
     /// The specified rule ID was not found.
     RuleNotFound = 1,
-    /// Caller is not authorized to modify this rule.
-    Unauthorized = 2,
     /// Minimum rating must be between 100 and 500 (scaled by 100, e.g. 450 = 4.50).
-    InvalidMinRating = 3,
+    InvalidMinRating = 2,
     /// Maximum purchase price must be strictly greater than zero.
-    InvalidMaxPrice = 4,
+    InvalidMaxPrice = 3,
     /// Maximum keys per key ID must be strictly greater than zero.
-    InvalidMaxPerKey = 5,
+    InvalidMaxPerKey = 4,
     /// Cannot update a deactivated rule.
-    RuleDeactivated = 6,
+    RuleDeactivated = 5,
     /// Rule has already been deactivated.
-    RuleAlreadyDeactivated = 7,
+    RuleAlreadyDeactivated = 6,
     /// Wallet has reached the maximum allowed registered rules (50).
-    TooManyRules = 8,
+    TooManyRules = 7,
     /// Arithmetic overflow while incrementing rule counter.
-    ArithmeticOverflow = 9,
+    ArithmeticOverflow = 8,
 }
 
 /// Evaluation criteria for rule-based automated key purchases.

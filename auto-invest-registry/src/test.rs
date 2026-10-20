@@ -1,11 +1,6 @@
 #![cfg(test)]
-extern crate std;
 
-use crate::{
-    AutoInvestError, AutoInvestRegistryContract, AutoInvestRegistryContractClient, CheckResult,
-    Criteria, Rule, RuleRegistered, RuleUpdated, MAX_RULES_PER_WALLET, RULE_REGISTERED_EVENT_NAME,
-    RULE_UPDATED_EVENT_NAME,
-};
+use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     Address, Env, Symbol, Vec,

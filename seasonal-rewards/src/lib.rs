@@ -125,7 +125,9 @@ impl SeasonalRewardsContract {
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::NextCampaignId, &1u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextCampaignId, &1u64);
         Ok(())
     }
 
@@ -167,7 +169,9 @@ impl SeasonalRewardsContract {
             .get(&DataKey::NextCampaignId)
             .unwrap_or(1);
         let next = id.checked_add(1).ok_or(SeasonalError::ArithmeticOverflow)?;
-        env.storage().instance().set(&DataKey::NextCampaignId, &next);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextCampaignId, &next);
 
         let campaign = Campaign {
             id,

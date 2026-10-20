@@ -579,6 +579,10 @@ pub struct AllocationClaimedEvent {
     pub ledger: u32,
 }
 
+/// Stable field order for protocol fee recipient updated event payloads (#573).
+pub const PROTOCOL_FEE_RECIPIENT_UPDATED_DATA_FIELDS: [&str; 3] =
+    ["old_recipient", "new_recipient", "updated_at_ledger"];
+
 /// Event shape:
 /// - topics: `(PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME, admin)`
 /// - data: `ProtocolFeeRecipientUpdatedEvent`
@@ -587,6 +591,7 @@ pub struct AllocationClaimedEvent {
 pub struct ProtocolFeeRecipientUpdatedEvent {
     pub old_recipient: Address,
     pub new_recipient: Address,
+    pub updated_at_ledger: u32,
 }
 
 /// Event shape:

@@ -178,6 +178,18 @@ Notes for indexers:
 - `new_fee_bps` reports the new fee in basis points (`0..=10000`).
 - `ledger` is the ledger sequence number at the time of the reduction.
 
+### Storage TTL Extension & Fee Recipient Update Events (#553, #573)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `ttl_ext` | `(Symbol("ttl_ext"), creator)` | `creator_id`, `extended_at_ledger`, `new_expiry_ledger` | `struct TtlExtendedEvent` |
+| `p_fee_upd` | `(Symbol("p_fee_upd"), admin)` | `old_recipient`, `new_recipient`, `updated_at_ledger` | `struct ProtocolFeeRecipientUpdatedEvent` |
+
+Notes for indexers:
+- `ttl_ext` is emitted when persistent storage for `creator_id` is extended.
+- `p_fee_upd` is emitted when the protocol fee recipient address is updated.
+- Both events provide distinct topics for efficient topic-filtered event ingestion.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
 

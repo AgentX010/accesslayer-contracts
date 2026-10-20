@@ -11214,6 +11214,7 @@ impl CreatorKeysContract {
                 events::ProtocolFeeRecipientUpdatedEvent {
                     old_recipient: old,
                     new_recipient: recipient,
+                    updated_at_ledger: env.ledger().sequence(),
                 },
             );
         }
@@ -12044,6 +12045,7 @@ impl CreatorKeysContract {
             events::ProtocolFeeRecipientUpdatedEvent {
                 old_recipient,
                 new_recipient,
+                updated_at_ledger: env.ledger().sequence(),
             },
         );
 

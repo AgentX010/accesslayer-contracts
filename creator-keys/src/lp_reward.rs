@@ -8,7 +8,6 @@ pub const MIN_REWARD_RATE_BPS: u32 = 1;
 /// Maximum reward rate a creator may set (5000 bps = 50%).
 pub const MAX_REWARD_RATE_BPS: u32 = 5_000;
 
-pub const LIQUIDITY_ADDED_EVENT_NAME: Symbol = symbol_short!("liq_add");
 pub const LP_ADDED_EVENT_NAME: Symbol = symbol_short!("LPAdded");
 pub const LP_CLAIMED_EVENT_NAME: Symbol = symbol_short!("lp_claim");
 pub const LP_REMOVED_EVENT_NAME: Symbol = symbol_short!("lp_rem");
@@ -63,31 +62,12 @@ pub struct LpPool {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct LiquidityAdded {
-    pub lp_id: u64,
-    pub key_id: Address,
-    pub provider: Address,
-    pub amount: i128,
-    pub share: i128,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
 pub struct LPAdded {
     pub lp_id: u64,
     pub key_id: Address,
     pub provider: Address,
     pub amount: i128,
     pub share: i128,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct RewardsClaimed {
-    pub lp_id: u64,
-    pub provider: Address,
-    pub key_id: Address,
-    pub amount: i128,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -245,16 +225,6 @@ pub fn add_liquidity(
         .set(&DataKey::TotalPositions, &(total_pos + 1));
 
     env.events().publish(
-        (LIQUIDITY_ADDED_EVENT_NAME, key_id.clone(), provider.clone()),
-        LiquidityAdded {
-            lp_id,
-            key_id: key_id.clone(),
-            provider: provider.clone(),
-            amount,
-            share: share_bps,
-        },
-    );
-    env.events().publish(
         (LP_ADDED_EVENT_NAME, key_id.clone(), provider.clone()),
         LPAdded {
             lp_id,
@@ -282,12 +252,7 @@ pub fn accrue_trading_fee(
         return Err(LpRewardError::ZeroLiquidityPool);
     }
 
-    // Distribute 20% of swap fees pro-rata to LPs
-    let reward_amount = (fee_amount
-        .checked_mul(2000)
-        .ok_or(LpRewardError::ArithmeticOverflow)?)
-        / BPS_SCALE;
-    let delta = (reward_amount
+    let delta = (fee_amount
         .checked_mul(SCALE)
         .ok_or(LpRewardError::ArithmeticOverflow)?)
         / pool.total_liquidity;
@@ -298,7 +263,7 @@ pub fn accrue_trading_fee(
         .ok_or(LpRewardError::ArithmeticOverflow)?;
     pool.total_rewards_collected = pool
         .total_rewards_collected
-        .checked_add(reward_amount)
+        .checked_add(fee_amount)
         .ok_or(LpRewardError::ArithmeticOverflow)?;
 
     write_pool(env, &pool);
@@ -345,19 +310,6 @@ pub fn remove_liquidity(env: &Env, lp_id: u64) -> Result<i128, LpRewardError> {
     write_pool(env, &pool);
 
     if pending > 0 {
-        env.events().publish(
-            (
-                LP_CLAIMED_EVENT_NAME,
-                position.key_id.clone(),
-                position.provider.clone(),
-            ),
-            RewardsClaimed {
-                lp_id,
-                provider: position.provider.clone(),
-                key_id: position.key_id.clone(),
-                amount: pending,
-            },
-        );
         env.events().publish(
             (
                 LP_CLAIMED_EVENT_NAME,
@@ -431,19 +383,6 @@ pub fn claim_lp_rewards(env: &Env, lp_id: u64) -> Result<i128, LpRewardError> {
     write_position(env, &position);
     write_pool(env, &pool);
 
-    env.events().publish(
-        (
-            LP_CLAIMED_EVENT_NAME,
-            position.key_id.clone(),
-            position.provider.clone(),
-        ),
-        RewardsClaimed {
-            lp_id,
-            provider: position.provider.clone(),
-            key_id: position.key_id.clone(),
-            amount: pending,
-        },
-    );
     env.events().publish(
         (
             LP_CLAIMED_EVENT_NAME,

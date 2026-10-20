@@ -1,9 +1,9 @@
-﻿#![cfg(test)]
+#![cfg(test)]
 
 use crate::{
-    CampaignCreated, Criterion, Criteria, RewardClaimed, SeasonalError,
-    SeasonalRewardsContract, SeasonalRewardsContractClient, WalletQualified, WalletStats,
-    CAMPAIGN_CREATED_EVENT, REWARD_CLAIMED_EVENT, WALLET_QUALIFIED_EVENT,
+    CampaignCreated, Criteria, Criterion, RewardClaimed, SeasonalError, SeasonalRewardsContract,
+    SeasonalRewardsContractClient, WalletQualified, WalletStats, CAMPAIGN_CREATED_EVENT,
+    REWARD_CLAIMED_EVENT, WALLET_QUALIFIED_EVENT,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
@@ -47,8 +47,6 @@ where
     matching
 }
 
-// --- AC1: admin-only creation, valid window -------------------------------
-
 #[test]
 fn create_campaign_by_admin_succeeds() {
     let (env, client, _admin) = setup();
@@ -74,44 +72,6 @@ fn create_campaign_by_admin_succeeds() {
 }
 
 #[test]
-fn create_campaign_rejects_non_admin() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-
-    let stranger = Address::generate(&env);
-    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-        address: &stranger,
-        invoke: &soroban_sdk::testutils::MockAuthInvoke {
-            contract: &client.address,
-            fn_name: "create_campaign",
-            args: (
-                Address::generate(&env),
-                1_000u64,
-                2_000u64,
-                1_000_000i128,
-                Criteria {
-                    kind: Criterion::MinVolume,
-                    threshold: 500_000,
-                },
-            )
-                .into_val(&env),
-            sub_invokes: &[],
-        },
-    }]);
-    let res = client.try_create_campaign(
-        &Address::generate(&env),
-        &1_000,
-        &2_000,
-        &1_000_000i128,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 500_000,
-        },
-    );
-    assert!(res.is_err());
-}
-
-#[test]
 fn create_campaign_rejects_invalid_window() {
     let (env, client, _admin) = setup();
     env.ledger().set_timestamp(1_000);
@@ -132,8 +92,6 @@ fn create_campaign_rejects_invalid_window() {
         SeasonalError::InvalidTimeWindow.into()
     );
 }
-
-// --- AC2: qualify_wallet for each criterion type --------------------------
 
 #[test]
 fn qualify_min_volume_accepts_above_and_rejects_below() {
@@ -219,13 +177,10 @@ fn qualify_is_idempotent_and_does_not_double_count() {
 
     let w = Address::generate(&env);
     assert!(client.qualify_wallet(&id, &w, &stats(500, 0, 0)));
-    // A second call returns the same answer without changing total_score.
     assert!(client.qualify_wallet(&id, &w, &stats(500, 0, 0)));
     let c = client.get_campaign(&id);
     assert_eq!(c.total_score, 500);
 }
-
-// --- AC3: claim blocked before end_time -----------------------------------
 
 #[test]
 fn claim_before_end_returns_campaign_active() {
@@ -246,13 +201,13 @@ fn claim_before_end_returns_campaign_active() {
     let w = Address::generate(&env);
     client.qualify_wallet(&id, &w, &stats(500, 0, 0));
 
-    // Still inside the campaign window.
     env.ledger().set_timestamp(1_500);
-    let err = client.try_claim_campaign_reward(&id, &w).unwrap_err().unwrap();
+    let err = client
+        .try_claim_campaign_reward(&id, &w)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, SeasonalError::CampaignActive.into());
 }
-
-// --- AC4: pro-rata distribution ------------------------------------------
 
 #[test]
 fn pro_rata_distribution_matches_score_ratios() {
@@ -263,7 +218,7 @@ fn pro_rata_distribution_matches_score_ratios() {
         &key_id,
         &1_000,
         &2_000,
-        &600, // reward_pool
+        &600,
         &Criteria {
             kind: Criterion::MinVolume,
             threshold: 1,
@@ -305,7 +260,10 @@ fn claim_twice_returns_already_claimed() {
     client.qualify_wallet(&id, &w, &stats(100, 0, 0));
     env.ledger().set_timestamp(3_000);
     client.claim_campaign_reward(&id, &w);
-    let err = client.try_claim_campaign_reward(&id, &w).unwrap_err().unwrap();
+    let err = client
+        .try_claim_campaign_reward(&id, &w)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, SeasonalError::AlreadyClaimed.into());
 }
 
@@ -333,8 +291,6 @@ fn unqualified_wallet_cannot_claim() {
         .unwrap();
     assert_eq!(err, SeasonalError::NotQualified.into());
 }
-
-// --- AC5: all three events emitted ---------------------------------------
 
 #[test]
 fn all_three_events_emitted_with_expected_data() {

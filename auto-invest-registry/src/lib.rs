@@ -39,17 +39,17 @@ pub const REGISTRY_TTL_EXTEND_TO: u32 = 518_400;
 #[repr(u32)]
 pub enum AutoInvestError {
     /// The specified rule ID was not found.
-    RuleNotFound = 1,
+    NotFound = 1,
     /// Minimum rating must be between 100 and 500 (scaled by 100, e.g. 450 = 4.50).
-    InvalidMinRating = 2,
+    MinRatingOutOfRange = 2,
     /// Maximum purchase price must be strictly greater than zero.
-    InvalidMaxPrice = 3,
+    MaxPriceInvalid = 3,
     /// Maximum keys per key ID must be strictly greater than zero.
-    InvalidMaxPerKey = 4,
+    MaxPerKeyZero = 4,
     /// Cannot update a deactivated rule.
-    RuleDeactivated = 5,
+    Deactivated = 5,
     /// Rule has already been deactivated.
-    RuleAlreadyDeactivated = 6,
+    AlreadyInactive = 6,
     /// Wallet has reached the maximum allowed registered rules (50).
     TooManyRules = 7,
     /// Arithmetic overflow while incrementing rule counter.
@@ -137,13 +137,13 @@ fn extend_ttl(env: &Env, key: &DataKey) {
 
 fn validate_criteria(criteria: &Criteria) -> Result<(), AutoInvestError> {
     if criteria.min_rating < MIN_SCALED_RATING || criteria.min_rating > MAX_SCALED_RATING {
-        return Err(AutoInvestError::InvalidMinRating);
+        return Err(AutoInvestError::MinRatingOutOfRange);
     }
     if criteria.max_price <= 0 {
-        return Err(AutoInvestError::InvalidMaxPrice);
+        return Err(AutoInvestError::MaxPriceInvalid);
     }
     if criteria.max_per_key == 0 {
-        return Err(AutoInvestError::InvalidMaxPerKey);
+        return Err(AutoInvestError::MaxPerKeyZero);
     }
     Ok(())
 }
@@ -235,12 +235,12 @@ impl AutoInvestRegistryContract {
             .storage()
             .persistent()
             .get(&rule_key)
-            .ok_or(AutoInvestError::RuleNotFound)?;
+            .ok_or(AutoInvestError::NotFound)?;
 
         rule.owner.require_auth();
 
         if !rule.active {
-            return Err(AutoInvestError::RuleDeactivated);
+            return Err(AutoInvestError::Deactivated);
         }
 
         validate_criteria(&criteria)?;
@@ -265,19 +265,19 @@ impl AutoInvestRegistryContract {
     ///
     /// The rule owner must authorize the call. Once deactivated, the rule is excluded
     /// from check_rule evaluation. If already deactivated, returns
-    /// [`AutoInvestError::RuleAlreadyDeactivated`].
+    /// [`AutoInvestError::AlreadyInactive`].
     pub fn deactivate_rule(env: Env, rule_id: u64) -> Result<(), AutoInvestError> {
         let rule_key = DataKey::Rule(rule_id);
         let mut rule: Rule = env
             .storage()
             .persistent()
             .get(&rule_key)
-            .ok_or(AutoInvestError::RuleNotFound)?;
+            .ok_or(AutoInvestError::NotFound)?;
 
         rule.owner.require_auth();
 
         if !rule.active {
-            return Err(AutoInvestError::RuleAlreadyDeactivated);
+            return Err(AutoInvestError::AlreadyInactive);
         }
 
         rule.active = false;
@@ -382,6 +382,6 @@ impl AutoInvestRegistryContract {
 
     /// Returns a specific rule by its unique ID.
     pub fn get_rule(env: Env, rule_id: u64) -> Result<Rule, AutoInvestError> {
-        load_rule(&env, rule_id).ok_or(AutoInvestError::RuleNotFound)
+        load_rule(&env, rule_id).ok_or(AutoInvestError::NotFound)
     }
 }

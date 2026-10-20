@@ -500,14 +500,14 @@ fn test_update_deactivated_rule_fails() {
     client.deactivate_rule(&rule_id);
 
     let res = client.try_update_rule(&rule_id, &valid_criteria());
-    assert_eq!(res, Err(Ok(AutoInvestError::RuleDeactivated)));
+    assert_eq!(res, Err(Ok(AutoInvestError::Deactivated)));
 }
 
 #[test]
 fn test_update_nonexistent_rule_fails() {
     let (_env, client, _wallet) = setup_test();
     let res = client.try_update_rule(&999, &valid_criteria());
-    assert_eq!(res, Err(Ok(AutoInvestError::RuleNotFound)));
+    assert_eq!(res, Err(Ok(AutoInvestError::NotFound)));
 }
 
 #[test]
@@ -518,16 +518,16 @@ fn test_double_deactivate_fails() {
     // First deactivation succeeds
     client.deactivate_rule(&rule_id);
 
-    // Second deactivation fails with RuleAlreadyDeactivated
+    // Second deactivation fails with AlreadyInactive
     let res = client.try_deactivate_rule(&rule_id);
-    assert_eq!(res, Err(Ok(AutoInvestError::RuleAlreadyDeactivated)));
+    assert_eq!(res, Err(Ok(AutoInvestError::AlreadyInactive)));
 }
 
 #[test]
 fn test_deactivate_nonexistent_rule_fails() {
     let (_env, client, _wallet) = setup_test();
     let res = client.try_deactivate_rule(&999);
-    assert_eq!(res, Err(Ok(AutoInvestError::RuleNotFound)));
+    assert_eq!(res, Err(Ok(AutoInvestError::NotFound)));
 }
 
 #[test]
@@ -539,7 +539,7 @@ fn test_invalid_criteria_rejections() {
     bad.min_rating = 99;
     assert_eq!(
         client.try_register_rule(&wallet, &bad),
-        Err(Ok(AutoInvestError::InvalidMinRating))
+        Err(Ok(AutoInvestError::MinRatingOutOfRange))
     );
 
     // Rating > 500
@@ -547,7 +547,7 @@ fn test_invalid_criteria_rejections() {
     bad.min_rating = 501;
     assert_eq!(
         client.try_register_rule(&wallet, &bad),
-        Err(Ok(AutoInvestError::InvalidMinRating))
+        Err(Ok(AutoInvestError::MinRatingOutOfRange))
     );
 
     // Max price == 0
@@ -555,7 +555,7 @@ fn test_invalid_criteria_rejections() {
     bad.max_price = 0;
     assert_eq!(
         client.try_register_rule(&wallet, &bad),
-        Err(Ok(AutoInvestError::InvalidMaxPrice))
+        Err(Ok(AutoInvestError::MaxPriceInvalid))
     );
 
     // Max price < 0
@@ -563,7 +563,7 @@ fn test_invalid_criteria_rejections() {
     bad.max_price = -100;
     assert_eq!(
         client.try_register_rule(&wallet, &bad),
-        Err(Ok(AutoInvestError::InvalidMaxPrice))
+        Err(Ok(AutoInvestError::MaxPriceInvalid))
     );
 
     // Max per key == 0
@@ -571,7 +571,7 @@ fn test_invalid_criteria_rejections() {
     bad.max_per_key = 0;
     assert_eq!(
         client.try_register_rule(&wallet, &bad),
-        Err(Ok(AutoInvestError::InvalidMaxPerKey))
+        Err(Ok(AutoInvestError::MaxPerKeyZero))
     );
 
     // Same criteria validation applies on update_rule
@@ -580,7 +580,7 @@ fn test_invalid_criteria_rejections() {
     bad.min_rating = 50;
     assert_eq!(
         client.try_update_rule(&valid_id, &bad),
-        Err(Ok(AutoInvestError::InvalidMinRating))
+        Err(Ok(AutoInvestError::MinRatingOutOfRange))
     );
 }
 

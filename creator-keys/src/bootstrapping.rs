@@ -25,7 +25,10 @@ pub fn set_bootstrap_config(
     duration_seconds: u64,
 ) {
     let current_time = env.ledger().timestamp();
+
     let config = BootstrapConfig {
+        start_price,
+        end_price,
         start_time: current_time,
         duration_seconds,
     };
@@ -33,12 +36,6 @@ pub fn set_bootstrap_config(
     env.storage()
         .persistent()
         .set(&BootstrapDataKey::Config(key_id.clone()), &config);
-}
-
-
-    env.storage()
-        .persistent()
-        .set(&BootstrapDataKey::Config(key_id.clone()), &config); 
 
     env.events().publish(
         bootstrap_started_topics(key_id),

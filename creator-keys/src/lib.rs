@@ -26,6 +26,8 @@ pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
+pub mod vote_delegation;
+pub use vote_delegation::VoteDelegationKey;
 
 pub mod test_feature_impl;
 pub mod test_new_features;
@@ -264,6 +266,17 @@ pub enum ContractError {
     InvalidNoticePeriod = 127,
     /// The key's notice-period deprecation has already been executed.
     DeprecationAlreadyExecuted = 128,
+    // --- Creator key vote delegation for proxy voting (Issue #1116) ---
+    /// Attempted vote delegation to self.
+    SelfDelegation = 129,
+    /// Vote delegation already active for this key; revoke first to re-delegate.
+    AlreadyDelegated = 130,
+    /// No active vote delegation found for this key.
+    NoDelegation = 131,
+    /// Re-delegation not permitted (delegates cannot delegate; delegators cannot receive delegation).
+    CannotReDelegate = 132,
+    /// Wallet does not hold keys for this creator.
+    NotAHolder = 133,
 }
 
 impl ContractError {
@@ -7777,6 +7790,7 @@ impl CreatorKeysContract {
             env.storage()
                 .persistent()
                 .remove(&constants::storage::last_buy_timestamp(&creator, &seller));
+            vote_delegation::prune_if_zero_balance(&env, &creator, &seller);
         } else {
             env.storage().persistent().set(&balance_key, &new_balance);
             extend_key_ttl_to_full_window(&env, &balance_key);
@@ -12984,6 +12998,7 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_sub(1)
                 .ok_or(ContractError::Overflow)?;
+            vote_delegation::prune_if_zero_balance(&env, &creator, &from);
         }
 
         // Update recipient balance.
@@ -15475,7 +15490,9 @@ impl CreatorKeysContract {
         }
 
         let delegate_key = constants::storage::delegate(&creator_id, &voter);
-        if env.storage().persistent().has(&delegate_key) {
+        if env.storage().persistent().has(&delegate_key)
+            || vote_delegation::has_active_delegation(&env, &creator_id, &voter)
+        {
             return Err(PollError::Unauthorized);
         }
 
@@ -15488,8 +15505,7 @@ impl CreatorKeysContract {
         {
             snap
         } else {
-            let balance_key = constants::storage::holder_balance_key(&creator_id, &voter);
-            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            let balance = vote_delegation::get_voting_weight(&env, &voter, &creator_id);
             if balance == 0 {
                 return Err(PollError::NotAHolder);
             }
@@ -15609,6 +15625,50 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::delegate(&creator_id, &delegator))
+    }
+
+    /// Assigns governance voting weight of `key_id` held by `holder` to `delegate_wallet` (Issue #1116).
+    ///
+    /// Requires authorization from `holder` (`require_auth`).
+    /// Verifies `holder` holds keys of `key_id`.
+    /// Rejects self-delegation, delegating an already-delegated key,
+    /// and re-delegation (delegates cannot delegate, delegators cannot receive delegation).
+    pub fn delegate_votes(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        delegate_wallet: Address,
+    ) -> Result<(), ContractError> {
+        vote_delegation::delegate_votes(&env, &holder, &key_id, &delegate_wallet)
+    }
+
+    /// Revokes an existing vote delegation for `key_id`, returning voting weight to `holder` (Issue #1116).
+    ///
+    /// Requires authorization from `holder` (`require_auth`).
+    /// Fails cleanly with `NoDelegation` if no active delegation exists.
+    pub fn revoke_delegation(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+    ) -> Result<(), ContractError> {
+        vote_delegation::revoke_delegation(&env, &holder, &key_id)
+    }
+
+    /// Read-only view: returns the wallet's own weight plus any weight delegated to it for `key_id` (Issue #1116).
+    ///
+    /// If `wallet` has delegated its votes, returns `0`.
+    pub fn get_voting_weight(env: Env, wallet: Address, key_id: Address) -> u32 {
+        vote_delegation::get_voting_weight(&env, &wallet, &key_id)
+    }
+
+    /// Read-only view: returns the current proxy vote delegate for `holder` on `key_id`.
+    pub fn get_vote_delegate(env: Env, holder: Address, key_id: Address) -> Option<Address> {
+        vote_delegation::get_vote_delegate(&env, &holder, &key_id)
+    }
+
+    /// Read-only view: returns all delegators who have delegated to `delegate` on `key_id`.
+    pub fn get_vote_delegators(env: Env, delegate: Address, key_id: Address) -> Vec<Address> {
+        vote_delegation::get_vote_delegators(&env, &delegate, &key_id)
     }
 
     /// Casts a vote on behalf of delegators using their delegated weight.

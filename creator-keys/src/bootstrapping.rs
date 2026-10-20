@@ -1,4 +1,3 @@
-
 use crate::events::{
     bootstrap_ended_topics, bootstrap_started_topics, BootstrapEndedEvent, BootstrapStartedEvent,
 };
@@ -32,7 +31,6 @@ pub fn set_bootstrap_config(
         start_time: current_time,
         duration_seconds,
     };
-
     
     env.storage()
         .persistent()
@@ -59,7 +57,6 @@ pub fn get_bootstrap_price_internal(env: &Env, key_id: &Address) -> Option<i128>
 
     let config: BootstrapConfig = env.storage().persistent().get(&storage_key).unwrap();
     let current_time = env.ledger().timestamp();
-    
     let expiration_time = config
         .start_time
         .checked_add(config.duration_seconds)

@@ -513,18 +513,42 @@ fn regression_vote_change_moves_weight_between_options_without_double_counting()
     client.cast_vote(&creator, &voter, &poll_id, &0);
 
     let after_first = client.get_poll_result(&creator, &poll_id);
-    assert_eq!(after_first.vote_counts.get(0).unwrap(), 10, "option 0 should hold the weight after first vote");
-    assert_eq!(after_first.vote_counts.get(1).unwrap(), 0, "option 1 should be empty after first vote");
-    assert_eq!(after_first.total_weight, 10, "total weight should equal the voter's balance");
+    assert_eq!(
+        after_first.vote_counts.get(0).unwrap(),
+        10,
+        "option 0 should hold the weight after first vote"
+    );
+    assert_eq!(
+        after_first.vote_counts.get(1).unwrap(),
+        0,
+        "option 1 should be empty after first vote"
+    );
+    assert_eq!(
+        after_first.total_weight,
+        10,
+        "total weight should equal the voter's balance"
+    );
 
     // Voter changes their vote to option 1.
     client.cast_vote(&creator, &voter, &poll_id, &1);
 
     let after_change = client.get_poll_result(&creator, &poll_id);
     // Option 0 must have been decremented by exactly 10.
-    assert_eq!(after_change.vote_counts.get(0).unwrap(), 0, "option 0 tally must drop to 0 after vote change");
+    assert_eq!(
+        after_change.vote_counts.get(0).unwrap(),
+        0,
+        "option 0 tally must drop to 0 after vote change"
+    );
     // Option 1 must have been incremented by exactly 10.
-    assert_eq!(after_change.vote_counts.get(1).unwrap(), 10, "option 1 tally must rise to 10 after vote change");
+    assert_eq!(
+        after_change.vote_counts.get(1).unwrap(),
+        10,
+        "option 1 tally must rise to 10 after vote change"
+    );
     // Total weight across all options must be unchanged — no double-counting.
-    assert_eq!(after_change.total_weight, 10, "total vote weight must remain unchanged after vote change");
+    assert_eq!(
+        after_change.total_weight,
+        10,
+        "total vote weight must remain unchanged after vote change"
+    );
 }

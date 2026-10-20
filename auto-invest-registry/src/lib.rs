@@ -1,5 +1,9 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::enum_variant_names)]
+
+#[cfg(test)]
+extern crate std;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,

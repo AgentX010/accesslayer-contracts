@@ -1,5 +1,5 @@
 
- //! Centralized event names and helpers for consistent event emission.
+//! Centralized event names and helpers for consistent event emission.
 //!
 //! This module provides a single source of truth for event names used throughout
 //! the contract, reducing string duplication and ensuring consistency across
@@ -3474,7 +3474,7 @@ pub struct ReputationUpdatedEvent {
     pub ledger: u32,
 }
 
- /// Helper function to generate event topics for reputation updates
+/// Helper function to generate event topics for reputation updates
 pub fn reputation_updated_topics(creator: &Address) -> (Symbol, Address) {
     (REPUTATION_UPDATED_EVENT_NAME.clone(), creator.clone())
 }

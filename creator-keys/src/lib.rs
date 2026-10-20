@@ -10,6 +10,7 @@ use soroban_sdk::{
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 pub mod bundle;
+pub mod community_polls;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
 ///
 /// Declared here as part of Issue #953 — the file existed but had no `mod`
@@ -278,6 +279,17 @@ pub enum ContractError {
     CannotReDelegate = 132,
     /// Wallet does not hold keys for this creator.
     NotAHolder = 133,
+    // --- Community polls (snapshot-weighted key-holder voting) ---
+    /// No poll with the given id exists.
+    PollNotFound = 134,
+    /// The poll has already closed, or its voting window has elapsed.
+    PollClosed = 135,
+    /// The wallet has already voted on this poll.
+    AlreadyVoted = 136,
+    /// A poll option was invalid: the option list size is outside
+    /// `[community_polls::MIN_POLL_OPTIONS, community_polls::MAX_POLL_OPTIONS]`,
+    /// an option's text was empty, or a vote's `option_index` was out of range.
+    InvalidPollOption = 137,
 }
 
 impl ContractError {
@@ -22394,5 +22406,7 @@ mod test_proxy;
 #[cfg(test)]
 mod test_announcements;
 
+#[cfg(test)]
+mod test_community_polls;
 #[cfg(test)]
 mod test_issue_1056;

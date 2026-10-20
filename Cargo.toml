@@ -11,6 +11,7 @@ members = [
     "key-liquidity-depth",
     "seasonal-rewards",
     "auto-invest-registry",
+    "key-analytics",
 ]
 resolver = "2"
 

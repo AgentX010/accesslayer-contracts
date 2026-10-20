@@ -278,6 +278,20 @@ pub enum ContractError {
     CannotReDelegate = 132,
     /// Wallet does not hold keys for this creator.
     NotAHolder = 133,
+    // --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
+    /// No retirement proposal has been made for the supplied key.
+    NoRetirementProposed = 134,
+    /// A retirement proposal already exists for the supplied key.
+    RetirementAlreadyProposed = 135,
+    /// `execute_retirement` was called before the 7-day notice window elapsed.
+    RetirementWindowActive = 136,
+    /// The retirement has already been executed.
+    RetirementAlreadyExecuted = 137,
+    /// The admin-funded buyback pool does not hold enough XLM to cover
+    /// `total_supply * buyback_price`.
+    RetirementPoolInsufficient = 138,
+    /// `fund_buyback` was called with a zero or negative amount.
+    InvalidFundAmount = 139,
 }
 
 impl ContractError {
@@ -2225,6 +2239,19 @@ pub enum DeprecationKey {
     Proposal(Address),
 }
 
+/// Storage keys for the admin-funded key retirement flow (Issue #1111).
+///
+/// Kept separate from [`DataKey`] to stay within Soroban's 50-variant
+/// `#[contracttype]` cap.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum RetirementKey {
+    /// Creator -> `RetirementProposal` pending execution.
+    Proposal(Address),
+    /// Creator -> `i128` buyback pool balance funded by the admin.
+    Pool(Address),
+}
+
 /// Storage keys for the cycle-based protocol revenue distribution (#877).
 ///
 /// Kept separate from [`DataKey`] to stay within Soroban's 50-variant cap.
@@ -2848,6 +2875,45 @@ pub struct DeprecationExecution {
     /// Per-key price used for the unwind (last traded price).
     pub unwind_price: i128,
     /// Ledger sequence at which the unwind executed.
+    pub ledger: u32,
+}
+
+/// Record of an admin-funded retirement proposal (Issue #1111).
+///
+/// Written by `propose_retirement` and stored under
+/// `RetirementKey::Proposal(creator)`. Holders may sell at the market rate
+/// during the 7-day notice window; after that point `execute_retirement`
+/// buys back every remaining position at `buyback_price`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RetirementProposal {
+    /// Key (creator address) being retired.
+    pub key_id: Address,
+    /// Fixed XLM buyback price per key guaranteed to all holders.
+    pub buyback_price: i128,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Ledger sequence at which the proposal was recorded.
+    pub proposed_at_ledger: u32,
+    /// Unix timestamp after which `execute_retirement` is allowed.
+    pub window_ends_at: u64,
+    /// `true` once `execute_retirement` has completed the buyback.
+    pub executed: bool,
+}
+
+/// Return value for `execute_retirement` (Issue #1111).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RetirementExecution {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total supply bought back across all holders.
+    pub total_supply_bought_back: u32,
+    /// Total XLM paid out to holders.
+    pub total_amount_paid: i128,
+    /// Per-key buyback price.
+    pub buyback_price: i128,
+    /// Ledger sequence at execution.
     pub ledger: u32,
 }
 
@@ -8427,6 +8493,319 @@ impl CreatorKeysContract {
             .get::<DeprecationKey, DeprecationProposal>(&key)?;
         extend_key_ttl_to_full_window(&env, &key);
         Some(proposal)
+    }
+
+    // -----------------------------------------------------------------------
+    // Key retirement with admin-funded holder buyback at floor price (#1111)
+    // -----------------------------------------------------------------------
+
+    /// Proposes the admin-funded retirement of a creator key.
+    ///
+    /// Admin-only. Records a [`RetirementProposal`] with a 7-day notice window
+    /// and a guaranteed `buyback_price` per key. Holders may still sell at the
+    /// market rate through the normal sell path for the full 7-day window.
+    /// After the window `execute_retirement` buys back all remaining supply at
+    /// `buyback_price`. Emits a `RetirementProposed` event.
+    ///
+    /// # Arguments
+    ///
+    /// - `admin`: must be the protocol admin.
+    /// - `key_id`: creator key to retire.
+    /// - `buyback_price`: guaranteed XLM payout per key (must be > 0).
+    /// - `reason`: human-readable reason (max 256 bytes).
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::RetirementAlreadyProposed`] if a live proposal exists.
+    /// - [`ContractError::RetirementAlreadyExecuted`] if already executed.
+    /// - [`ContractError::NotPositiveAmount`] if `buyback_price` is not positive.
+    /// - [`ContractError::BioTooLong`] if `reason` exceeds 256 bytes.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn propose_retirement(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        buyback_price: i128,
+        reason: String,
+    ) -> Result<RetirementProposal, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if buyback_price <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        if reason.len() > 256 {
+            return Err(ContractError::BioTooLong);
+        }
+
+        // Key must be registered before it can be retired.
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let proposal_key = RetirementKey::Proposal(key_id.clone());
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<RetirementKey, RetirementProposal>(&proposal_key)
+        {
+            return if existing.executed {
+                Err(ContractError::RetirementAlreadyExecuted)
+            } else {
+                Err(ContractError::RetirementAlreadyProposed)
+            };
+        }
+
+        // 7-day notice window from now.
+        let notice_secs: u64 = 7u64
+            .checked_mul(SECONDS_PER_DAY)
+            .ok_or(ContractError::Overflow)?;
+        let window_ends_at = env
+            .ledger()
+            .timestamp()
+            .checked_add(notice_secs)
+            .ok_or(ContractError::Overflow)?;
+
+        let current_ledger = env.ledger().sequence();
+
+        let proposal = RetirementProposal {
+            key_id: key_id.clone(),
+            buyback_price,
+            reason: reason.clone(),
+            proposed_at_ledger: current_ledger,
+            window_ends_at,
+            executed: false,
+        };
+        env.storage().persistent().set(&proposal_key, &proposal);
+        extend_key_ttl_to_full_window(&env, &proposal_key);
+
+        env.events().publish(
+            events::retirement_proposed_topics(&key_id),
+            events::RetirementProposedEvent {
+                key_id: key_id.clone(),
+                buyback_price,
+                reason,
+                window_ends_at,
+                ledger: current_ledger,
+            },
+        );
+
+        Ok(proposal)
+    }
+
+    /// Funds the buyback pool for a pending retirement proposal.
+    ///
+    /// Admin-only. Adds `amount` to the retirement pool stored at
+    /// `RetirementKey::Pool(key_id)`. Must be called before
+    /// `execute_retirement` to ensure the pool covers
+    /// `total_supply * buyback_price`.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::NoRetirementProposed`] if no proposal exists.
+    /// - [`ContractError::RetirementAlreadyExecuted`] if already executed.
+    /// - [`ContractError::InvalidFundAmount`] if `amount` is not positive.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn fund_retirement_buyback(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        amount: i128,
+    ) -> Result<i128, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if amount <= 0 {
+            return Err(ContractError::InvalidFundAmount);
+        }
+
+        // Ensure a live proposal exists.
+        let proposal_key = RetirementKey::Proposal(key_id.clone());
+        let proposal: RetirementProposal = env
+            .storage()
+            .persistent()
+            .get(&proposal_key)
+            .ok_or(ContractError::NoRetirementProposed)?;
+        if proposal.executed {
+            return Err(ContractError::RetirementAlreadyExecuted);
+        }
+
+        let pool_key = RetirementKey::Pool(key_id.clone());
+        let current: i128 = env.storage().persistent().get(&pool_key).unwrap_or(0);
+        let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&pool_key, &updated);
+        extend_key_ttl_to_full_window(&env, &pool_key);
+
+        Ok(updated)
+    }
+
+    /// Executes a pending retirement, buying back all outstanding supply at
+    /// `buyback_price` and crediting each holder's internal payable balance.
+    ///
+    /// Admin-only. Callable only after the 7-day notice window has elapsed.
+    /// Reverts if the pool balance is less than `total_supply * buyback_price`.
+    /// Emits a `RetirementExecuted` event with the total supply bought back and
+    /// the total amount paid.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::NoRetirementProposed`] if no proposal exists.
+    /// - [`ContractError::RetirementAlreadyExecuted`] if already executed.
+    /// - [`ContractError::RetirementWindowActive`] if the notice window has not elapsed.
+    /// - [`ContractError::RetirementPoolInsufficient`] if pool < supply * buyback_price.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn execute_retirement(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+    ) -> Result<RetirementExecution, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let proposal_key = RetirementKey::Proposal(key_id.clone());
+        let mut proposal: RetirementProposal = env
+            .storage()
+            .persistent()
+            .get(&proposal_key)
+            .ok_or(ContractError::NoRetirementProposed)?;
+
+        if proposal.executed {
+            return Err(ContractError::RetirementAlreadyExecuted);
+        }
+
+        let now = env.ledger().timestamp();
+        if now < proposal.window_ends_at {
+            return Err(ContractError::RetirementWindowActive);
+        }
+
+        let buyback_price = proposal.buyback_price;
+
+        // Read current supply and verify the pool covers the full buyback cost.
+        let mut profile = read_registered_creator_profile(&env, &key_id)?;
+        let total_supply = profile.supply;
+
+        let required: i128 = (total_supply as i128)
+            .checked_mul(buyback_price)
+            .ok_or(ContractError::Overflow)?;
+
+        let pool_key = RetirementKey::Pool(key_id.clone());
+        let pool_balance: i128 = env.storage().persistent().get(&pool_key).unwrap_or(0);
+
+        if pool_balance < required {
+            return Err(ContractError::RetirementPoolInsufficient);
+        }
+
+        // Snapshot registry before mutating so the iteration is stable.
+        let registry = read_holder_registry(&env, &key_id);
+
+        let mut total_supply_bought_back: u32 = 0;
+        let mut total_amount_paid: i128 = 0;
+
+        for holder in registry.iter() {
+            let balance_key = constants::storage::holder_balance_key(&key_id, &holder);
+            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+
+            let payout = (balance as i128)
+                .checked_mul(buyback_price)
+                .ok_or(ContractError::Overflow)?;
+
+            // Settle any pending dividends before burning the position.
+            settle_holder_dividends(&env, &key_id, &holder, balance)?;
+            // Credit buyback payout into holder's internal payable balance.
+            credit_holder_pending_dividend(&env, &key_id, &holder, payout)?;
+
+            env.storage().persistent().remove(&balance_key);
+            env.storage()
+                .persistent()
+                .remove(&constants::storage::staked_balance(&key_id, &holder));
+
+            total_supply_bought_back = total_supply_bought_back
+                .checked_add(balance)
+                .ok_or(ContractError::Overflow)?;
+            total_amount_paid = total_amount_paid
+                .checked_add(payout)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Retire the key: zero out supply and holder count.
+        profile.supply = 0;
+        profile.holder_count = 0;
+        let profile_key = constants::storage::creator(&key_id);
+        env.storage().persistent().set(&profile_key, &profile);
+        extend_key_ttl_to_full_window(&env, &profile_key);
+
+        // Mark the key as deprecated so the buy path rejects new purchases.
+        let deprecated_key = constants::storage::deprecated_key(&key_id);
+        env.storage()
+            .persistent()
+            .set(&deprecated_key, &buyback_price);
+        extend_key_ttl_to_full_window(&env, &deprecated_key);
+
+        // Deduct spent amount from the pool; remove key when drained.
+        let remaining_pool = pool_balance
+            .checked_sub(total_amount_paid)
+            .ok_or(ContractError::Overflow)?;
+        if remaining_pool == 0 {
+            env.storage().persistent().remove(&pool_key);
+        } else {
+            env.storage().persistent().set(&pool_key, &remaining_pool);
+            extend_key_ttl_to_full_window(&env, &pool_key);
+        }
+
+        proposal.executed = true;
+        env.storage().persistent().set(&proposal_key, &proposal);
+        extend_key_ttl_to_full_window(&env, &proposal_key);
+
+        let ledger = env.ledger().sequence();
+        env.events().publish(
+            events::retirement_executed_topics(&key_id),
+            events::RetirementExecutedEvent {
+                key_id: key_id.clone(),
+                total_supply_bought_back,
+                total_amount_paid,
+                buyback_price,
+                ledger,
+            },
+        );
+
+        Ok(RetirementExecution {
+            key_id,
+            total_supply_bought_back,
+            total_amount_paid,
+            buyback_price,
+            ledger,
+        })
+    }
+
+    /// Read-only view: returns the pending or executed retirement proposal for
+    /// a key, or `None` when no retirement has been proposed.
+    pub fn get_retirement_proposal(env: Env, key_id: Address) -> Option<RetirementProposal> {
+        let key = RetirementKey::Proposal(key_id);
+        let proposal = env
+            .storage()
+            .persistent()
+            .get::<RetirementKey, RetirementProposal>(&key)?;
+        extend_key_ttl_to_full_window(&env, &key);
+        Some(proposal)
+    }
+
+    /// Read-only view: returns the current retirement pool balance for a key.
+    /// Returns `0` when no pool has been funded yet.
+    pub fn get_retirement_pool_balance(env: Env, key_id: Address) -> i128 {
+        let key = RetirementKey::Pool(key_id);
+        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if balance > 0 {
+            extend_key_ttl_to_full_window(&env, &key);
+        }
+        balance
     }
 
     /// Redeems all keys held by `holder` for a deprecated creator key.

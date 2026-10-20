@@ -8,7 +8,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Env, Symbol, TryFromVal, Vec,
+    Address, Env, Symbol, Vec,
 };
 
 fn setup_test() -> (Env, AutoInvestRegistryContractClient<'static>, Address) {
@@ -33,10 +33,10 @@ fn rule_registered_events(env: &Env) -> Vec<RuleRegistered> {
     let mut matching = Vec::new(env);
     for (_, topics, data) in env.events().all().iter() {
         if let Some(first) = topics.get(0) {
-            if Symbol::try_from_val(env, &first) == Ok(RULE_REGISTERED_EVENT_NAME) {
-                if let Ok(event) = RuleRegistered::try_from_val(env, &data) {
-                    matching.push_back(event);
-                }
+            let sym: Symbol = first.into_val(env);
+            if sym == RULE_REGISTERED_EVENT_NAME {
+                let event: RuleRegistered = data.into_val(env);
+                matching.push_back(event);
             }
         }
     }
@@ -47,10 +47,10 @@ fn rule_updated_events(env: &Env) -> Vec<RuleUpdated> {
     let mut matching = Vec::new(env);
     for (_, topics, data) in env.events().all().iter() {
         if let Some(first) = topics.get(0) {
-            if Symbol::try_from_val(env, &first) == Ok(RULE_UPDATED_EVENT_NAME) {
-                if let Ok(event) = RuleUpdated::try_from_val(env, &data) {
-                    matching.push_back(event);
-                }
+            let sym: Symbol = first.into_val(env);
+            if sym == RULE_UPDATED_EVENT_NAME {
+                let event: RuleUpdated = data.into_val(env);
+                matching.push_back(event);
             }
         }
     }

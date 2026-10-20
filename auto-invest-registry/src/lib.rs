@@ -301,15 +301,17 @@ impl AutoInvestRegistryContract {
     /// Iterates through the wallet's rules in registration order (FIFO).
     /// Deactivated rules are excluded from evaluation. Returns the first matching rule,
     /// or `{ eligible: false, rule: None }` if no rule matches all criteria.
+    #[allow(clippy::too_many_arguments)]
     pub fn check_rule_with_context(
         env: Env,
         wallet: Address,
-        _key_id: Address,
+        key_id: Address,
         category: u32,
         rating: u32,
         price: i128,
         current_holdings: u32,
     ) -> CheckResult {
+        let _ = key_id;
         let rule_ids = get_wallet_rule_ids(&env, &wallet);
         for rule_id in rule_ids.iter() {
             if let Some(rule) = load_rule(&env, rule_id) {
@@ -342,6 +344,7 @@ impl AutoInvestRegistryContract {
     ///
     /// Delegates directly to [`Self::check_rule_with_context`]. Relies on caller-supplied
     /// data and is strictly advisory, not a security gate.
+    #[allow(clippy::too_many_arguments)]
     pub fn check_rule(
         env: Env,
         wallet: Address,

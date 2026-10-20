@@ -791,6 +791,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "key-liquidity-depth"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "key-staking-contract"
 version = "0.1.0"
 dependencies = [

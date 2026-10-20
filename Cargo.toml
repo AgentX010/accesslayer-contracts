@@ -8,9 +8,7 @@ members = [
     "multisig-admin",
     "nonce-registry",
     "launch-auction",
-    "vesting-contract",
-    "badge-contract",
-    "leaderboard-contract",
+    "key-liquidity-depth",
     "auto-invest-registry",
 ]
 resolver = "2"

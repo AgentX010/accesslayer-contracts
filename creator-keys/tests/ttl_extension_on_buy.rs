@@ -124,9 +124,11 @@ fn test_ttl_extension_event_topics_and_payload() {
     let topic1: Address = topics.get(1).unwrap().into_val(&env);
     assert_eq!(topic1, creator);
 
-    let extend_to: u32 = data.into_val(&env);
+    let payload: events::TtlExtendedEvent = data.into_val(&env);
     let expected_extend_to = ledger_before_buy + CREATOR_TTL_LEDGERS;
-    assert_eq!(extend_to, expected_extend_to);
+    assert_eq!(payload.creator_id, creator);
+    assert_eq!(payload.extended_at_ledger, ledger_before_buy);
+    assert_eq!(payload.new_expiry_ledger, expected_extend_to);
 }
 
 /// Second buy on the same ledger does NOT further extend TTL

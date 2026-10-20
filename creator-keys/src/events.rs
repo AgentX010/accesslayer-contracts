@@ -29,7 +29,7 @@
 //!   "Event shape" in this module.
 //! - Events without a dedicated struct carry a plain value as data:
 //!   `pause`, `unpause`, `blk_add`, `blk_rem` (`()`), `dl_set` (deadline
-//!   ledger `Option<u32>`), `ttl_ext` (new live-until ledger `u32`),
+//!   ledger `Option<u32>`),
 //!   `gpause_on` / `gpause_of` (ledger `u32`), `poll_new` (expiry ledger) and
 //!   `poll_vote` (`(option_index, weight)`).
 //!
@@ -865,6 +865,28 @@ pub const TREASURY_WITHDRAWAL_EVENT_NAME: Symbol = symbol_short!("treas_out");
 
 /// Event name for creator storage TTL extension.
 pub const TTL_EXTENDED_EVENT_NAME: Symbol = symbol_short!("ttl_ext");
+
+/// Stable field order for TTL extension event payloads (#553, #573).
+pub const TTL_EXTENDED_DATA_FIELDS: [&str; 3] =
+    ["creator_id", "extended_at_ledger", "new_expiry_ledger"];
+
+/// Stable TTL extension event payload for downstream indexers and monitoring tools (#553, #573).
+///
+/// Event shape:
+/// - topics: `(TTL_EXTENDED_EVENT_NAME, creator)`
+/// - data: `TtlExtendedEvent`
+///
+/// Emitted when the contract extends a creator key's persistent storage TTL.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlExtendedEvent {
+    /// Creator key whose storage TTL was extended.
+    pub creator_id: Address,
+    /// Ledger sequence number at the time of TTL extension.
+    pub extended_at_ledger: u32,
+    /// New live-until ledger sequence number after extension.
+    pub new_expiry_ledger: u32,
+}
 
 /// Stable field order for treasury withdrawal event payloads.
 pub const TREASURY_WITHDRAWAL_DATA_FIELDS: [&str; 4] =

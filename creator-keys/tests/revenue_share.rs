@@ -72,6 +72,7 @@ fn test_distribute_revenue_success_and_remainder_reconciliation() {
     assert!(fee_balance_before >= 1007);
 
     let dist_id = client.distribute_revenue(&creator, &1007i128);
+    let events = env.events().all();
     assert_eq!(dist_id, 1);
 
     // Only total_allocated (1006) must be debited from creator fee balance;
@@ -103,7 +104,6 @@ fn test_distribute_revenue_success_and_remainder_reconciliation() {
         revenue_distributed_topics(&creator, dist_id),
         (REVENUE_DISTRIBUTED_EVENT_NAME, creator.clone(), dist_id)
     );
-    let events = env.events().all();
     let (_, topics, data) = events
         .iter()
         .rev()
@@ -259,6 +259,7 @@ fn test_claim_credits_pending_balance_and_prevents_double_claim() {
 
     // Claim share
     let claimed = client.claim_revenue_share(&dist_id, &holder_a);
+    let events = env.events().all();
     assert_eq!(claimed, 750);
 
     // Pending dividend balance should increase by claimed amount
@@ -284,7 +285,6 @@ fn test_claim_credits_pending_balance_and_prevents_double_claim() {
         revenue_share_claimed_topics(dist_id, &holder_a),
         (REVENUE_SHARE_CLAIMED_EVENT_NAME, dist_id, holder_a.clone())
     );
-    let events = env.events().all();
     let (_, topics, data) = events
         .iter()
         .rev()

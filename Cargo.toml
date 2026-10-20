@@ -9,6 +9,7 @@ members = [
     "nonce-registry",
     "launch-auction",
     "key-liquidity-depth",
+    "seasonal-rewards",
 ]
 resolver = "2"
 
@@ -37,4 +38,3 @@ lto = true
 # covers both `cargo build` and `cargo test` invocations.
 [profile.dev]
 debug = 0
-

@@ -1,11 +1,14 @@
 #![no_std]
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
-pub mod quote_view_errors;
-pub mod vesting;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String, Vec,
 };
+pub mod bootstrapping;
+pub mod events;
+pub mod quote_view_errors;
+pub mod vesting;
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
@@ -19,7 +22,7 @@ pub mod community_polls;
 pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
-pub mod events;
+
 pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
@@ -22405,6 +22408,23 @@ mod test_proxy;
 
 #[cfg(test)]
 mod test_announcements;
+pub fn create_bootstrap(
+    env: Env,
+    admin: Address,
+    key_id: Address,
+    start_price: i128,
+    end_price: i128,
+    duration_seconds: u64,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    bootstrapping::set_bootstrap_config(&env, &key_id, start_price, end_price, duration_seconds);
+    Ok(())
+}
+
+/// Returns current bootstrap price or None if bootstrap period has ended.
+pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
+    bootstrapping::get_bootstrap_price_internal(&env, &key_id)
+}
 
 #[cfg(test)]
 mod test_community_polls;

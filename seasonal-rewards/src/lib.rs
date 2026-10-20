@@ -11,11 +11,6 @@ pub const CAMPAIGN_CREATED_EVENT: Symbol = symbol_short!("camp_new");
 pub const WALLET_QUALIFIED_EVENT: Symbol = symbol_short!("qual");
 pub const REWARD_CLAIMED_EVENT: Symbol = symbol_short!("claim");
 
-/// Per-wallet stats passed to `qualify_wallet` by an admin or off-chain
-/// indexer. The seasonal-rewards contract does not itself observe trade
-/// history — it verifies that the supplied stats meet the campaign's
-/// criteria and stores the resulting score on-chain so double-claiming is
-/// impossible.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WalletStats {
@@ -24,17 +19,14 @@ pub struct WalletStats {
     pub hold_seconds: u64,
 }
 
-/// Which threshold the campaign applies.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Criterion {
-    MinVolume,
-    MinHoldDays,
-    MinTrades,
+    Volume,
+    HoldDays,
+    Trades,
 }
 
-/// Campaign qualification rule. One criterion per campaign so the pro-rata
-/// score is unambiguous.
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Criteria {
@@ -245,21 +237,21 @@ impl SeasonalRewardsContract {
         }
 
         let score: i128 = match campaign.criteria.kind {
-            Criterion::MinVolume => {
+            Criterion::Volume => {
                 if stats.volume >= campaign.criteria.threshold {
                     stats.volume
                 } else {
                     0
                 }
             }
-            Criterion::MinTrades => {
+            Criterion::Trades => {
                 if (stats.trade_count as i128) >= campaign.criteria.threshold {
                     stats.trade_count as i128
                 } else {
                     0
                 }
             }
-            Criterion::MinHoldDays => {
+            Criterion::HoldDays => {
                 let threshold_seconds = campaign
                     .criteria
                     .threshold

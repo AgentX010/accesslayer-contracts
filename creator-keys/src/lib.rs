@@ -2247,6 +2247,51 @@ pub enum RevenueKey {
     CycleClaimed(Address, u32, Address),
 }
 
+/// Storage keys for creator-funded revenue sharing (issue #1135).
+///
+/// Kept separate from [`DataKey`] to follow the same convention as
+/// [`RevenueKey`] and [`LeaderboardKey`] and avoid expanding [`DataKey`].
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum RevenueShareKey {
+    /// Global auto-incrementing distribution ID counter -> `u32`.
+    GlobalDistributionCount,
+    /// Metadata for a specific distribution: `distribution_id` -> `RevenueDistributionMeta`.
+    DistributionMeta(u32),
+    /// Allocated share for a holder in a distribution: `(distribution_id, holder)` -> `i128`.
+    SnapshotShare(u32, Address),
+    /// Marker indicating whether a holder has claimed their share: `(distribution_id, holder)` -> `bool`.
+    Claimed(u32, Address),
+}
+
+/// Metadata recorded for each creator-funded revenue distribution (issue #1135).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct RevenueDistributionMeta {
+    /// Creator / key ID who funded the distribution.
+    pub key_id: Address,
+    /// Ledger sequence when the snapshot was executed.
+    pub snapshot_ledger: u32,
+    /// Total requested distribution amount.
+    pub total_amount: i128,
+    /// Total allocated amount actually debited and claimable by holders.
+    pub allocated_amount: i128,
+    /// Undistributed remainder from floor-division dust (retained in creator fee balance).
+    pub remainder: i128,
+    /// Total key supply eligible at the time of distribution.
+    pub total_entitled_keys: u32,
+}
+
+/// Return type for `get_revenue_share` showing claimable and claimed amounts (issue #1135).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RevenueShareView {
+    /// Amount currently claimable by the wallet.
+    pub claimable_amount: i128,
+    /// Amount already claimed by the wallet from this distribution.
+    pub claimed_amount: i128,
+}
+
 /// Storage keys for the per-creator holder leaderboard (issue #924).
 ///
 /// Kept separate from [`DataKey`] to follow the same convention as
@@ -9860,6 +9905,247 @@ impl CreatorKeysContract {
         env.storage().persistent().set(&claimed_key, &true);
         extend_key_ttl_to_full_window(&env, &claimed_key);
         Ok(share)
+    }
+
+    /// Distributes `amount` of accrued creator fees to all current key holders pro-rata (issue #1135).
+    ///
+    /// # Authorization
+    /// - Requires authentication by `key_id` (the creator).
+    ///
+    /// # Safety and Accounting
+    /// - Fails with [`ContractError::ProtocolPaused`] if the protocol is paused.
+    /// - Fails with [`ContractError::NotRegistered`] if `key_id` is not registered.
+    /// - Fails with [`ContractError::NoKeyHolders`] if total supply is zero or if eligible
+    ///   holders' total keys do not match supply.
+    /// - Fails with [`ContractError::ZeroDistributionAmount`] if `amount < supply as i128` (dust threshold).
+    /// - Fails with [`ContractError::InsufficientBalance`] if `creator_fee_balance < amount`.
+    /// - Fails with [`ContractError::SnapshotHolderLimitExceeded`] if eligible holders exceed [`MAX_SNAPSHOT_HOLDERS`].
+    /// - Floor-division dust stays in the creator's fee balance; only `total_allocated` is debited.
+    ///
+    /// # Returns
+    /// - The newly generated unique `distribution_id`.
+    pub fn distribute_revenue(
+        env: Env,
+        key_id: Address,
+        amount: i128,
+    ) -> Result<u32, ContractError> {
+        key_id.require_auth();
+        assert_not_paused(&env)?;
+
+        let profile = read_registered_creator_profile(&env, &key_id)?;
+        if profile.supply == 0 {
+            return Err(ContractError::NoKeyHolders);
+        }
+
+        let supply = profile.supply as i128;
+        if amount < supply {
+            return Err(ContractError::ZeroDistributionAmount);
+        }
+
+        let current_fees = read_creator_fee_recipient_balance(&env, &key_id);
+        if current_fees < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let registry = Self::get_holder_registry(env.clone(), key_id.clone());
+
+        let mut eligible_holders = soroban_sdk::Vec::new(&env);
+        let mut eligible_balances = soroban_sdk::Vec::new(&env);
+        let mut total_eligible_keys: u32 = 0;
+
+        for holder in registry.iter() {
+            let balance: u32 = env
+                .storage()
+                .persistent()
+                .get(&constants::storage::holder_balance_key(&key_id, &holder))
+                .unwrap_or(0);
+
+            if balance > 0 {
+                total_eligible_keys = total_eligible_keys
+                    .checked_add(balance)
+                    .ok_or(ContractError::Overflow)?;
+                eligible_holders.push_back(holder);
+                eligible_balances.push_back(balance);
+            }
+        }
+
+        if total_eligible_keys != profile.supply {
+            return Err(ContractError::NoKeyHolders);
+        }
+
+        let eligible_count = eligible_holders.len();
+        if eligible_count == 0 {
+            return Err(ContractError::NoKeyHolders);
+        }
+        if eligible_count > MAX_SNAPSHOT_HOLDERS {
+            return Err(ContractError::SnapshotHolderLimitExceeded);
+        }
+
+        // Allocate shares and compute sum
+        let mut total_allocated: i128 = 0;
+        let mut shares = soroban_sdk::Vec::new(&env);
+
+        for balance in eligible_balances.iter() {
+            let holder_keys = balance as i128;
+            let share = amount
+                .checked_mul(holder_keys)
+                .ok_or(ContractError::Overflow)?
+                / supply;
+            total_allocated = total_allocated
+                .checked_add(share)
+                .ok_or(ContractError::Overflow)?;
+            shares.push_back(share);
+        }
+
+        let remainder = amount
+            .checked_sub(total_allocated)
+            .ok_or(ContractError::Overflow)?;
+
+        // Debit creator fee balance by total_allocated
+        let updated_fees = current_fees
+            .checked_sub(total_allocated)
+            .ok_or(ContractError::InsufficientBalance)?;
+        let fee_balance_key = constants::storage::creator_fee_balance(&key_id);
+        env.storage()
+            .persistent()
+            .set(&fee_balance_key, &updated_fees);
+        extend_key_ttl_to_full_window(&env, &fee_balance_key);
+
+        // Advance global distribution counter
+        let global_count_key = RevenueShareKey::GlobalDistributionCount;
+        let current_count: u32 = env
+            .storage()
+            .persistent()
+            .get(&global_count_key)
+            .unwrap_or(0);
+        let distribution_id = current_count
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        env.storage()
+            .persistent()
+            .set(&global_count_key, &distribution_id);
+        extend_key_ttl_to_full_window(&env, &global_count_key);
+
+        // Persist per-holder snapshot shares
+        for i in 0..eligible_count {
+            let holder = eligible_holders.get(i).unwrap();
+            let share = shares.get(i).unwrap();
+            let share_key = RevenueShareKey::SnapshotShare(distribution_id, holder);
+            env.storage().persistent().set(&share_key, &share);
+            extend_key_ttl_to_full_window(&env, &share_key);
+        }
+
+        // Record distribution metadata
+        let meta = RevenueDistributionMeta {
+            key_id: key_id.clone(),
+            snapshot_ledger: env.ledger().sequence(),
+            total_amount: amount,
+            allocated_amount: total_allocated,
+            remainder,
+            total_entitled_keys: profile.supply,
+        };
+        let meta_key = RevenueShareKey::DistributionMeta(distribution_id);
+        env.storage().persistent().set(&meta_key, &meta);
+        extend_key_ttl_to_full_window(&env, &meta_key);
+
+        // Publish event
+        env.events().publish(
+            events::revenue_distributed_topics(&key_id, distribution_id),
+            events::RevenueDistributedEvent {
+                key_id: key_id.clone(),
+                distribution_id,
+                amount,
+                allocated_amount: total_allocated,
+                remainder,
+                total_eligible_keys: profile.supply,
+                eligible_count,
+            },
+        );
+
+        Ok(distribution_id)
+    }
+
+    /// Claims `claimant`'s allocated share for `distribution_id` and credits their pending dividend balance (issue #1135).
+    ///
+    /// # Authorization
+    /// - Requires authentication by `claimant`.
+    ///
+    /// # Safety and Accounting
+    /// - Fails with [`ContractError::ProtocolPaused`] if the protocol is paused.
+    /// - Fails with [`ContractError::SnapshotNotFound`] if `distribution_id` is invalid or missing.
+    /// - Fails with [`ContractError::AlreadyClaimed`] if the share was already claimed.
+    /// - Fails with [`ContractError::NoDividendClaimable`] if the claimant has no share (share == 0).
+    /// - Credits claimant's `holder_dividend_pending` using checked accumulation.
+    ///
+    /// # Returns
+    /// - The claimed share amount.
+    pub fn claim_revenue_share(
+        env: Env,
+        distribution_id: u32,
+        claimant: Address,
+    ) -> Result<i128, ContractError> {
+        claimant.require_auth();
+        assert_not_paused(&env)?;
+
+        let meta_key = RevenueShareKey::DistributionMeta(distribution_id);
+        let meta: RevenueDistributionMeta = env
+            .storage()
+            .persistent()
+            .get(&meta_key)
+            .ok_or(ContractError::SnapshotNotFound)?;
+
+        let claimed_key = RevenueShareKey::Claimed(distribution_id, claimant.clone());
+        if env.storage().persistent().has(&claimed_key) {
+            return Err(ContractError::AlreadyClaimed);
+        }
+
+        let share_key = RevenueShareKey::SnapshotShare(distribution_id, claimant.clone());
+        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
+        if share == 0 {
+            return Err(ContractError::NoDividendClaimable);
+        }
+
+        // Mark as claimed
+        env.storage().persistent().set(&claimed_key, &true);
+        extend_key_ttl_to_full_window(&env, &claimed_key);
+
+        // Credit holder_dividend_pending for (meta.key_id, claimant)
+        let pending_key = constants::storage::holder_dividend_pending(&meta.key_id, &claimant);
+        let current_pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+        let new_pending = fee::checked_accumulate(current_pending, share)?;
+        env.storage().persistent().set(&pending_key, &new_pending);
+        extend_key_ttl_to_full_window(&env, &pending_key);
+
+        // Publish event
+        env.events().publish(
+            events::revenue_share_claimed_topics(distribution_id, &claimant),
+            events::RevenueShareClaimedEvent {
+                distribution_id,
+                key_id: meta.key_id,
+                claimant: claimant.clone(),
+                amount: share,
+            },
+        );
+
+        Ok(share)
+    }
+
+    /// Read-only view: returns both claimable and claimed amounts for a wallet in a distribution (issue #1135).
+    pub fn get_revenue_share(env: Env, distribution_id: u32, wallet: Address) -> RevenueShareView {
+        let share_key = RevenueShareKey::SnapshotShare(distribution_id, wallet.clone());
+        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
+
+        let claimed_key = RevenueShareKey::Claimed(distribution_id, wallet);
+        let is_claimed: bool = env
+            .storage()
+            .persistent()
+            .get(&claimed_key)
+            .unwrap_or(false);
+
+        RevenueShareView {
+            claimable_amount: if is_claimed { 0 } else { share },
+            claimed_amount: if is_claimed { share } else { 0 },
+        }
     }
 
     /// Read-only view: returns a holder's snapshotted balance, or `0` if the

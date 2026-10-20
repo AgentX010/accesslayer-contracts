@@ -24,11 +24,11 @@ use contract_test_env::{
 };
 use creator_keys::events::{
     revenue_distributed_topics, revenue_share_claimed_topics, RevenueDistributedEvent,
-    RevenueShareClaimedEvent,
+    RevenueShareClaimedEvent, REVENUE_DISTRIBUTED_EVENT_NAME, REVENUE_SHARE_CLAIMED_EVENT_NAME,
 };
 use creator_keys::{ContractError, CreatorKeysContractClient, RevenueShareView};
-use soroban_sdk::testutils::{Address as _, Events};
-use soroban_sdk::{Address, Env, IntoVal};
+use soroban_sdk::testutils::{Address as _, Events, Ledger as _};
+use soroban_sdk::{Address, Env, IntoVal, Symbol, TryFromVal};
 
 const KEY_PRICE: i128 = 1_000;
 
@@ -99,14 +99,27 @@ fn test_distribute_revenue_success_and_remainder_reconciliation() {
     );
 
     // Verify event
+    assert_eq!(
+        revenue_distributed_topics(&creator, dist_id),
+        (REVENUE_DISTRIBUTED_EVENT_NAME, creator.clone(), dist_id)
+    );
     let events = env.events().all();
-    let (_, _, data) = events
+    let (_, topics, data) = events
         .iter()
         .rev()
         .find(|(_, topics, _)| {
-            topics == &revenue_distributed_topics(&creator, dist_id).into_val(&env)
+            topics
+                .get(0)
+                .and_then(|v| Symbol::try_from_val(&env, &v).ok())
+                .map(|s| s == REVENUE_DISTRIBUTED_EVENT_NAME)
+                .unwrap_or(false)
         })
         .expect("RevenueDistributedEvent not found");
+
+    let topic_key: Address = topics.get(1).unwrap().into_val(&env);
+    let topic_dist_id: u32 = topics.get(2).unwrap().into_val(&env);
+    assert_eq!(topic_key, creator);
+    assert_eq!(topic_dist_id, dist_id);
 
     let event: RevenueDistributedEvent = data.into_val(&env);
     assert_eq!(event.key_id, creator);
@@ -160,6 +173,9 @@ fn test_distribute_filters_zero_balance_wallets() {
     let seller = Address::generate(&env);
     let quote = client.get_buy_quote(&creator);
     client.buy_key(&creator, &seller, &quote.total_amount, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &seller, &None);
 
     // Verify seller is in holder registry but has 0 balance
@@ -214,6 +230,9 @@ fn test_post_snapshot_trades_do_not_affect_shares() {
     let dist_id = client.distribute_revenue(&creator, &1000i128);
 
     // Holder B transfers or sells their key after the snapshot
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder_b, &None);
     assert_eq!(client.get_key_balance(&creator, &holder_b), 0);
 
@@ -259,14 +278,27 @@ fn test_claim_credits_pending_balance_and_prevents_double_claim() {
     assert_eq!(res, Err(Ok(ContractError::AlreadyClaimed)));
 
     // Verify claim event
+    assert_eq!(
+        revenue_share_claimed_topics(dist_id, &holder_a),
+        (REVENUE_SHARE_CLAIMED_EVENT_NAME, dist_id, holder_a.clone())
+    );
     let events = env.events().all();
-    let (_, _, data) = events
+    let (_, topics, data) = events
         .iter()
         .rev()
         .find(|(_, topics, _)| {
-            topics == &revenue_share_claimed_topics(dist_id, &holder_a).into_val(&env)
+            topics
+                .get(0)
+                .and_then(|v| Symbol::try_from_val(&env, &v).ok())
+                .map(|s| s == REVENUE_SHARE_CLAIMED_EVENT_NAME)
+                .unwrap_or(false)
         })
         .expect("RevenueShareClaimedEvent not found");
+
+    let topic_dist_id: u32 = topics.get(1).unwrap().into_val(&env);
+    let topic_claimant: Address = topics.get(2).unwrap().into_val(&env);
+    assert_eq!(topic_dist_id, dist_id);
+    assert_eq!(topic_claimant, holder_a);
 
     let event: RevenueShareClaimedEvent = data.into_val(&env);
     assert_eq!(event.distribution_id, dist_id);

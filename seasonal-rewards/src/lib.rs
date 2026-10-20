@@ -1,367 +1,364 @@
-#![cfg(test)]
+#![no_std]
 
-use crate::{
-    CampaignCreated, Criteria, Criterion, RewardClaimed, SeasonalError, SeasonalRewardsContract,
-    SeasonalRewardsContractClient, WalletQualified, WalletStats, CAMPAIGN_CREATED_EVENT,
-    REWARD_CLAIMED_EVENT, WALLET_QUALIFIED_EVENT,
-};
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, Symbol, TryFromVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
 };
 
-const DAY: u64 = 86_400;
+#[cfg(test)]
+mod test;
 
-fn setup() -> (Env, SeasonalRewardsContractClient<'static>, Address) {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(SeasonalRewardsContract, ());
-    let client = SeasonalRewardsContractClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    client.initialize(&admin);
-    (env, client, admin)
+pub const CAMPAIGN_CREATED_EVENT: Symbol = symbol_short!("camp_new");
+pub const WALLET_QUALIFIED_EVENT: Symbol = symbol_short!("qual");
+pub const REWARD_CLAIMED_EVENT: Symbol = symbol_short!("claim");
+
+/// Per-wallet stats passed to `qualify_wallet` by an admin or off-chain
+/// indexer. The seasonal-rewards contract does not itself observe trade
+/// history — it verifies that the supplied stats meet the campaign's
+/// criteria and stores the resulting score on-chain so double-claiming is
+/// impossible.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WalletStats {
+    pub volume: i128,
+    pub trade_count: u32,
+    pub hold_seconds: u64,
 }
 
-fn stats(volume: i128, trade_count: u32, hold_seconds: u64) -> WalletStats {
-    WalletStats {
-        volume,
-        trade_count,
-        hold_seconds,
+/// Which threshold the campaign applies.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Criterion {
+    MinVolume,
+    MinHoldDays,
+    MinTrades,
+}
+
+/// Campaign qualification rule. One criterion per campaign so the pro-rata
+/// score is unambiguous.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Criteria {
+    pub kind: Criterion,
+    pub threshold: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Campaign {
+    pub id: u64,
+    pub key_id: Address,
+    pub admin: Address,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub reward_pool: i128,
+    pub criteria: Criteria,
+    pub total_score: i128,
+    pub total_claimed: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignCreated {
+    pub campaign_id: u64,
+    pub key_id: Address,
+    pub admin: Address,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub reward_pool: i128,
+    pub criterion: Criterion,
+    pub threshold: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WalletQualified {
+    pub campaign_id: u64,
+    pub wallet: Address,
+    pub score: i128,
+    pub total_score: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RewardClaimed {
+    pub campaign_id: u64,
+    pub wallet: Address,
+    pub amount: i128,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum SeasonalError {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    CampaignNotFound = 4,
+    InvalidTimeWindow = 5,
+    CampaignActive = 6,
+    NotQualified = 7,
+    AlreadyClaimed = 8,
+    InvalidCriteria = 9,
+    ArithmeticOverflow = 10,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DataKey {
+    Admin,
+    NextCampaignId,
+    Campaign(u64),
+    Qualification(u64, Address),
+    Claimed(u64, Address),
+}
+
+const SECONDS_PER_DAY: i128 = 86_400;
+
+#[contract]
+pub struct SeasonalRewardsContract;
+
+#[contractimpl]
+impl SeasonalRewardsContract {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), SeasonalError> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(SeasonalError::AlreadyInitialized);
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::NextCampaignId, &1u64);
+        Ok(())
     }
-}
 
-fn get_events<T>(env: &Env, topic: Symbol) -> Vec<T>
-where
-    T: IntoVal<Env, Val> + TryFromVal<Env, Val>,
-{
-    let mut matching = Vec::new(env);
-    for (_, topics, data) in env.events().all().iter() {
-        if let Some(first) = topics.get(0) {
-            if Symbol::try_from_val(env, &first) == Ok(topic.clone()) {
-                if let Ok(ev) = T::try_from_val(env, &data) {
-                    matching.push_back(ev);
+    pub fn admin(env: Env) -> Result<Address, SeasonalError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(SeasonalError::NotInitialized)
+    }
+
+    pub fn create_campaign(
+        env: Env,
+        key_id: Address,
+        start_time: u64,
+        end_time: u64,
+        reward_pool: i128,
+        criteria: Criteria,
+    ) -> Result<u64, SeasonalError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(SeasonalError::NotInitialized)?;
+        admin.require_auth();
+
+        if start_time >= end_time {
+            return Err(SeasonalError::InvalidTimeWindow);
+        }
+        if end_time <= env.ledger().timestamp() {
+            return Err(SeasonalError::InvalidTimeWindow);
+        }
+        if reward_pool <= 0 || criteria.threshold <= 0 {
+            return Err(SeasonalError::InvalidCriteria);
+        }
+
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextCampaignId)
+            .unwrap_or(1);
+        let next = id.checked_add(1).ok_or(SeasonalError::ArithmeticOverflow)?;
+        env.storage().instance().set(&DataKey::NextCampaignId, &next);
+
+        let campaign = Campaign {
+            id,
+            key_id: key_id.clone(),
+            admin: admin.clone(),
+            start_time,
+            end_time,
+            reward_pool,
+            criteria,
+            total_score: 0,
+            total_claimed: 0,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Campaign(id), &campaign);
+
+        env.events().publish(
+            (CAMPAIGN_CREATED_EVENT, id, key_id),
+            CampaignCreated {
+                campaign_id: id,
+                key_id: campaign.key_id.clone(),
+                admin,
+                start_time,
+                end_time,
+                reward_pool,
+                criterion: criteria.kind,
+                threshold: criteria.threshold,
+            },
+        );
+
+        Ok(id)
+    }
+
+    pub fn get_campaign(env: Env, campaign_id: u64) -> Result<Campaign, SeasonalError> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(SeasonalError::CampaignNotFound)
+    }
+
+    pub fn get_qualification(env: Env, campaign_id: u64, wallet: Address) -> Option<i128> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Qualification(campaign_id, wallet))
+    }
+
+    pub fn qualify_wallet(
+        env: Env,
+        campaign_id: u64,
+        wallet: Address,
+        stats: WalletStats,
+    ) -> Result<bool, SeasonalError> {
+        wallet.require_auth();
+
+        let mut campaign: Campaign = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(SeasonalError::CampaignNotFound)?;
+
+        if env.ledger().timestamp() < campaign.start_time {
+            return Err(SeasonalError::InvalidTimeWindow);
+        }
+
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::Qualification(campaign_id, wallet.clone()))
+        {
+            return Ok(existing > 0);
+        }
+
+        let score: i128 = match campaign.criteria.kind {
+            Criterion::MinVolume => {
+                if stats.volume >= campaign.criteria.threshold {
+                    stats.volume
+                } else {
+                    0
                 }
             }
-        }
-    }
-    matching
-}
+            Criterion::MinTrades => {
+                if (stats.trade_count as i128) >= campaign.criteria.threshold {
+                    stats.trade_count as i128
+                } else {
+                    0
+                }
+            }
+            Criterion::MinHoldDays => {
+                let threshold_seconds = campaign
+                    .criteria
+                    .threshold
+                    .checked_mul(SECONDS_PER_DAY)
+                    .ok_or(SeasonalError::ArithmeticOverflow)?;
+                if (stats.hold_seconds as i128) >= threshold_seconds {
+                    stats.hold_seconds as i128
+                } else {
+                    0
+                }
+            }
+        };
 
-#[test]
-fn create_campaign_by_admin_succeeds() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Qualification(campaign_id, wallet.clone()), &score);
 
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000_000i128,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 500_000,
-        },
-    );
-    assert_eq!(id, 1);
+        if score > 0 {
+            campaign.total_score = campaign
+                .total_score
+                .checked_add(score)
+                .ok_or(SeasonalError::ArithmeticOverflow)?;
+            env.storage()
+                .persistent()
+                .set(&DataKey::Campaign(campaign_id), &campaign);
 
-    let c = client.get_campaign(&id);
-    assert_eq!(c.reward_pool, 1_000_000);
-    assert_eq!(c.total_score, 0);
-    assert_eq!(c.total_claimed, 0);
-}
-
-#[test]
-fn create_campaign_rejects_non_admin() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-
-    let stranger = Address::generate(&env);
-    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-        address: &stranger,
-        invoke: &soroban_sdk::testutils::MockAuthInvoke {
-            contract: &client.address,
-            fn_name: "create_campaign",
-            args: (
-                Address::generate(&env),
-                1_000u64,
-                2_000u64,
-                1_000_000i128,
-                Criteria {
-                    kind: Criterion::MinVolume,
-                    threshold: 500_000,
+            env.events().publish(
+                (WALLET_QUALIFIED_EVENT, campaign_id, wallet.clone()),
+                WalletQualified {
+                    campaign_id,
+                    wallet,
+                    score,
+                    total_score: campaign.total_score,
                 },
-            )
-                .into_val(&env),
-            sub_invokes: &[],
-        },
-    }]);
-    let res = client.try_create_campaign(
-        &Address::generate(&env),
-        &1_000,
-        &2_000,
-        &1_000_000i128,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 500_000,
-        },
-    );
-    assert!(res.is_err());
-}
+            );
+        }
 
-#[test]
-fn create_campaign_rejects_invalid_window() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
+        Ok(score > 0)
+    }
 
-    let key_id = Address::generate(&env);
-    let res = client.try_create_campaign(
-        &key_id,
-        &2_000,
-        &1_500,
-        &1_000_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 500_000,
-        },
-    );
-    assert_eq!(
-        res.unwrap_err().unwrap(),
-        SeasonalError::InvalidTimeWindow.into()
-    );
-}
+    pub fn claim_campaign_reward(
+        env: Env,
+        campaign_id: u64,
+        wallet: Address,
+    ) -> Result<i128, SeasonalError> {
+        wallet.require_auth();
 
-#[test]
-fn qualify_min_volume_accepts_above_and_rejects_below() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 500_000,
-        },
-    );
+        let mut campaign: Campaign = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(SeasonalError::CampaignNotFound)?;
 
-    let above = Address::generate(&env);
-    let below = Address::generate(&env);
-    assert!(client.qualify_wallet(&id, &above, &stats(600_000, 0, 0)));
-    assert!(!client.qualify_wallet(&id, &below, &stats(400_000, 0, 0)));
-}
+        if env.ledger().timestamp() < campaign.end_time {
+            return Err(SeasonalError::CampaignActive);
+        }
 
-#[test]
-fn qualify_min_trades_accepts_above_and_rejects_below() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000_000,
-        &Criteria {
-            kind: Criterion::MinTrades,
-            threshold: 10,
-        },
-    );
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Claimed(campaign_id, wallet.clone()))
+        {
+            return Err(SeasonalError::AlreadyClaimed);
+        }
 
-    let above = Address::generate(&env);
-    let below = Address::generate(&env);
-    assert!(client.qualify_wallet(&id, &above, &stats(0, 12, 0)));
-    assert!(!client.qualify_wallet(&id, &below, &stats(0, 8, 0)));
-}
+        let score: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Qualification(campaign_id, wallet.clone()))
+            .ok_or(SeasonalError::NotQualified)?;
+        if score <= 0 {
+            return Err(SeasonalError::NotQualified);
+        }
+        if campaign.total_score <= 0 {
+            return Err(SeasonalError::NotQualified);
+        }
 
-#[test]
-fn qualify_min_hold_days_accepts_above_and_rejects_below() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000_000,
-        &Criteria {
-            kind: Criterion::MinHoldDays,
-            threshold: 7,
-        },
-    );
+        let numerator = campaign
+            .reward_pool
+            .checked_mul(score)
+            .ok_or(SeasonalError::ArithmeticOverflow)?;
+        let payout = numerator / campaign.total_score;
 
-    let above = Address::generate(&env);
-    let below = Address::generate(&env);
-    assert!(client.qualify_wallet(&id, &above, &stats(0, 0, 8 * DAY)));
-    assert!(!client.qualify_wallet(&id, &below, &stats(0, 0, 3 * DAY)));
-}
+        campaign.total_claimed = campaign
+            .total_claimed
+            .checked_add(payout)
+            .ok_or(SeasonalError::ArithmeticOverflow)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Claimed(campaign_id, wallet.clone()), &true);
 
-#[test]
-fn qualify_is_idempotent_and_does_not_double_count() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 100,
-        },
-    );
+        env.events().publish(
+            (REWARD_CLAIMED_EVENT, campaign_id, wallet.clone()),
+            RewardClaimed {
+                campaign_id,
+                wallet,
+                amount: payout,
+            },
+        );
 
-    let w = Address::generate(&env);
-    assert!(client.qualify_wallet(&id, &w, &stats(500, 0, 0)));
-    assert!(client.qualify_wallet(&id, &w, &stats(500, 0, 0)));
-    let c = client.get_campaign(&id);
-    assert_eq!(c.total_score, 500);
-}
-
-#[test]
-fn claim_before_end_returns_campaign_active() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 100,
-        },
-    );
-
-    let w = Address::generate(&env);
-    client.qualify_wallet(&id, &w, &stats(500, 0, 0));
-
-    env.ledger().set_timestamp(1_500);
-    let err = client
-        .try_claim_campaign_reward(&id, &w)
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err, SeasonalError::CampaignActive.into());
-}
-
-#[test]
-fn pro_rata_distribution_matches_score_ratios() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &600,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 1,
-        },
-    );
-
-    let a = Address::generate(&env);
-    let b = Address::generate(&env);
-    let c = Address::generate(&env);
-    client.qualify_wallet(&id, &a, &stats(100, 0, 0));
-    client.qualify_wallet(&id, &b, &stats(200, 0, 0));
-    client.qualify_wallet(&id, &c, &stats(300, 0, 0));
-
-    env.ledger().set_timestamp(3_000);
-    assert_eq!(client.claim_campaign_reward(&id, &a), 100);
-    assert_eq!(client.claim_campaign_reward(&id, &b), 200);
-    assert_eq!(client.claim_campaign_reward(&id, &c), 300);
-
-    let campaign = client.get_campaign(&id);
-    assert_eq!(campaign.total_claimed, 600);
-}
-
-#[test]
-fn claim_twice_returns_already_claimed() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 1,
-        },
-    );
-    let w = Address::generate(&env);
-    client.qualify_wallet(&id, &w, &stats(100, 0, 0));
-    env.ledger().set_timestamp(3_000);
-    client.claim_campaign_reward(&id, &w);
-    let err = client
-        .try_claim_campaign_reward(&id, &w)
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err, SeasonalError::AlreadyClaimed.into());
-}
-
-#[test]
-fn unqualified_wallet_cannot_claim() {
-    let (env, client, _admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 100,
-        },
-    );
-    let below = Address::generate(&env);
-    client.qualify_wallet(&id, &below, &stats(50, 0, 0));
-    env.ledger().set_timestamp(3_000);
-    let err = client
-        .try_claim_campaign_reward(&id, &below)
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err, SeasonalError::NotQualified.into());
-}
-
-#[test]
-fn all_three_events_emitted_with_expected_data() {
-    let (env, client, admin) = setup();
-    env.ledger().set_timestamp(1_000);
-    let key_id = Address::generate(&env);
-    let id = client.create_campaign(
-        &key_id,
-        &1_000,
-        &2_000,
-        &1_000,
-        &Criteria {
-            kind: Criterion::MinVolume,
-            threshold: 100,
-        },
-    );
-
-    let created: Vec<CampaignCreated> = get_events(&env, CAMPAIGN_CREATED_EVENT);
-    assert_eq!(created.len(), 1);
-    assert_eq!(created.get(0).unwrap().campaign_id, id);
-    assert_eq!(created.get(0).unwrap().admin, admin);
-
-    let w = Address::generate(&env);
-    client.qualify_wallet(&id, &w, &stats(500, 0, 0));
-    let qualified: Vec<WalletQualified> = get_events(&env, WALLET_QUALIFIED_EVENT);
-    assert_eq!(qualified.len(), 1);
-    assert_eq!(qualified.get(0).unwrap().wallet, w);
-    assert_eq!(qualified.get(0).unwrap().score, 500);
-
-    env.ledger().set_timestamp(3_000);
-    let payout = client.claim_campaign_reward(&id, &w);
-    let claimed: Vec<RewardClaimed> = get_events(&env, REWARD_CLAIMED_EVENT);
-    assert_eq!(claimed.len(), 1);
-    assert_eq!(claimed.get(0).unwrap().wallet, w);
-    assert_eq!(claimed.get(0).unwrap().amount, payout);
+        Ok(payout)
+    }
 }

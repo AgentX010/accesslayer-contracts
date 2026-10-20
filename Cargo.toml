@@ -9,6 +9,7 @@ members = [
     "nonce-registry",
     "launch-auction",
     "key-liquidity-depth",
+    "key-analytics",
 ]
 resolver = "2"
 

@@ -10,6 +10,7 @@ members = [
     "launch-auction",
     "key-liquidity-depth",
     "seasonal-rewards",
+    "auto-invest-registry",
 ]
 resolver = "2"
 

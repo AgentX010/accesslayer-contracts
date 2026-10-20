@@ -59,7 +59,7 @@ fn create_campaign_by_admin_succeeds() {
         &2_000,
         &1_000_000i128,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 500_000,
         },
     );
@@ -83,14 +83,11 @@ fn create_campaign_rejects_invalid_window() {
         &1_500,
         &1_000_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 500_000,
         },
     );
-    assert_eq!(
-        res.unwrap_err().unwrap(),
-        SeasonalError::InvalidTimeWindow.into()
-    );
+    assert_eq!(res.unwrap_err().unwrap(), SeasonalError::InvalidTimeWindow);
 }
 
 #[test]
@@ -104,7 +101,7 @@ fn qualify_min_volume_accepts_above_and_rejects_below() {
         &2_000,
         &1_000_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 500_000,
         },
     );
@@ -126,7 +123,7 @@ fn qualify_min_trades_accepts_above_and_rejects_below() {
         &2_000,
         &1_000_000,
         &Criteria {
-            kind: Criterion::MinTrades,
+            kind: Criterion::Trades,
             threshold: 10,
         },
     );
@@ -148,7 +145,7 @@ fn qualify_min_hold_days_accepts_above_and_rejects_below() {
         &2_000,
         &1_000_000,
         &Criteria {
-            kind: Criterion::MinHoldDays,
+            kind: Criterion::HoldDays,
             threshold: 7,
         },
     );
@@ -170,7 +167,7 @@ fn qualify_is_idempotent_and_does_not_double_count() {
         &2_000,
         &1_000_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 100,
         },
     );
@@ -193,7 +190,7 @@ fn claim_before_end_returns_campaign_active() {
         &2_000,
         &1_000_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 100,
         },
     );
@@ -206,7 +203,7 @@ fn claim_before_end_returns_campaign_active() {
         .try_claim_campaign_reward(&id, &w)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, SeasonalError::CampaignActive.into());
+    assert_eq!(err, SeasonalError::CampaignActive);
 }
 
 #[test]
@@ -220,7 +217,7 @@ fn pro_rata_distribution_matches_score_ratios() {
         &2_000,
         &600,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 1,
         },
     );
@@ -252,7 +249,7 @@ fn claim_twice_returns_already_claimed() {
         &2_000,
         &1_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 1,
         },
     );
@@ -264,7 +261,7 @@ fn claim_twice_returns_already_claimed() {
         .try_claim_campaign_reward(&id, &w)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, SeasonalError::AlreadyClaimed.into());
+    assert_eq!(err, SeasonalError::AlreadyClaimed);
 }
 
 #[test]
@@ -278,7 +275,7 @@ fn unqualified_wallet_cannot_claim() {
         &2_000,
         &1_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 100,
         },
     );
@@ -289,7 +286,7 @@ fn unqualified_wallet_cannot_claim() {
         .try_claim_campaign_reward(&id, &below)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, SeasonalError::NotQualified.into());
+    assert_eq!(err, SeasonalError::NotQualified);
 }
 
 #[test]
@@ -303,7 +300,7 @@ fn all_three_events_emitted_with_expected_data() {
         &2_000,
         &1_000,
         &Criteria {
-            kind: Criterion::MinVolume,
+            kind: Criterion::Volume,
             threshold: 100,
         },
     );

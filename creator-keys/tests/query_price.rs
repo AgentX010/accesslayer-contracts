@@ -20,7 +20,7 @@ const SLOPE: i128 = 5_000_000; // 0.5 XLM per supply step
 #[test]
 fn test_query_price_at_supply_zero() {
     let env = test_env_with_auths();
-    let (client, contract_id) = register_creator_keys(&env);
+    let (client, _) = register_creator_keys(&env);
     set_key_price_for_tests(&env, &client, BASE_PRICE);
     set_curve_slope(&env, &client, SLOPE);
 
@@ -31,7 +31,7 @@ fn test_query_price_at_supply_zero() {
 
     // query_price at supply 0: formula is base_price + slope * 0 = base_price
     let price_0 = client.query_price(&creator, &0u64);
-    let expected_0 = BASE_PRICE + SLOPE * 0;
+    let expected_0 = BASE_PRICE;
     assert_eq!(
         price_0, expected_0,
         "query_price at supply 0 must match inline formula base_price + slope * 0"
@@ -52,7 +52,7 @@ fn test_query_price_at_supply_zero() {
 #[test]
 fn test_query_price_at_supply_one() {
     let env = test_env_with_auths();
-    let (client, contract_id) = register_creator_keys(&env);
+    let (client, _) = register_creator_keys(&env);
     set_key_price_for_tests(&env, &client, BASE_PRICE);
     set_curve_slope(&env, &client, SLOPE);
 
@@ -63,7 +63,7 @@ fn test_query_price_at_supply_one() {
 
     // query_price at supply 1: formula is base_price + slope * 1
     let price_1 = client.query_price(&creator, &1u64);
-    let expected_1 = BASE_PRICE + SLOPE * 1;
+    let expected_1 = BASE_PRICE + SLOPE;
     assert_eq!(
         price_1, expected_1,
         "query_price at supply 1 must match inline formula base_price + slope * 1"
@@ -77,7 +77,7 @@ fn test_query_price_at_supply_one() {
 #[test]
 fn test_query_price_at_mid_range_supply() {
     let env = test_env_with_auths();
-    let (client, contract_id) = register_creator_keys(&env);
+    let (client, _) = register_creator_keys(&env);
     set_key_price_for_tests(&env, &client, BASE_PRICE);
     set_curve_slope(&env, &client, SLOPE);
 
@@ -105,8 +105,8 @@ fn test_query_price_requires_no_admin_authentication() {
     // Unmocked auth environment to verify query_price does not require admin auth
     let env = Env::default();
     env.mock_all_auths();
-    let (client, contract_id) = register_creator_keys(&env);
-    let admin = set_key_price_for_tests(&env, &client, BASE_PRICE);
+    let (client, _) = register_creator_keys(&env);
+    let _admin = set_key_price_for_tests(&env, &client, BASE_PRICE);
     let creator = register_test_creator(&env, &client, "alice");
 
     // Un-mock auths to ensure unauthenticated callers can query price

@@ -14,7 +14,7 @@ use contract_test_env::{
 };
 use creator_keys::events;
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Events},
     Address, Env, IntoVal,
 };
 

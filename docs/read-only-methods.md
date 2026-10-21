@@ -8,6 +8,21 @@ For fee split math, see [fee-assumptions.md](./fee-assumptions.md). For integrat
 
 ## Quote methods
 
+### `query_price(creator: Address, supply: u64) → Result<i128, ContractError>`
+
+Pure read-only helper that computes the bonding curve price at any given supply step without mutating contract state or requiring authentication (#552).
+
+- **Returns**: Expected price in stroops for the given supply step, matching the exact value the buy function computes for that step (`base_price + slope * supply`).
+- **Authorization**: None required (public read-only query).
+- **Edge cases**:
+  - `supply == 0`: returns the base key price.
+  - `supply == 1`: returns `base_price + slope * 1`.
+  - Mid-range supply (e.g. `supply == 50`): returns `base_price + slope * 50`.
+  - Returns `Err(ContractError::KeyPriceNotSet)` if no key price has been configured.
+  - Returns `Err(ContractError::Overflow)` if supply exceeds `u32::MAX` or calculation overflows.
+
+---
+
 ### `get_buy_quote(creator: Address) → Result<QuoteResponse, ContractError>`
 
 Returns the current quote for purchasing one key for a creator.

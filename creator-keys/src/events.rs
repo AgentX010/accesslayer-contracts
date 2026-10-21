@@ -573,6 +573,10 @@ pub struct AllocationClaimedEvent {
     pub ledger: u32,
 }
 
+/// Stable field order for protocol fee recipient updated event payloads (#573).
+pub const PROTOCOL_FEE_RECIPIENT_UPDATED_DATA_FIELDS: [&str; 3] =
+    ["old_recipient", "new_recipient", "updated_at_ledger"];
+
 /// Event shape:
 /// - topics: `(PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME, admin)`
 /// - data: `ProtocolFeeRecipientUpdatedEvent`
@@ -581,6 +585,7 @@ pub struct AllocationClaimedEvent {
 pub struct ProtocolFeeRecipientUpdatedEvent {
     pub old_recipient: Address,
     pub new_recipient: Address,
+    pub updated_at_ledger: u32,
 }
 
 /// Event shape:
@@ -859,6 +864,28 @@ pub const TREASURY_WITHDRAWAL_EVENT_NAME: Symbol = symbol_short!("treas_out");
 
 /// Event name for creator storage TTL extension.
 pub const TTL_EXTENDED_EVENT_NAME: Symbol = symbol_short!("ttl_ext");
+
+/// Stable field order for TTL extension event payloads (#553, #573).
+pub const TTL_EXTENDED_DATA_FIELDS: [&str; 3] =
+    ["creator_id", "extended_at_ledger", "new_expiry_ledger"];
+
+/// Stable TTL extension event payload for downstream indexers and monitoring tools (#553, #573).
+///
+/// Event shape:
+/// - topics: `(TTL_EXTENDED_EVENT_NAME, creator)`
+/// - data: `TtlExtendedEvent`
+///
+/// Emitted when the contract extends a creator key's persistent storage TTL.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlExtendedEvent {
+    /// Creator key whose storage TTL was extended.
+    pub creator_id: Address,
+    /// Ledger sequence number at the time of TTL extension.
+    pub extended_at_ledger: u32,
+    /// New live-until ledger sequence number after extension.
+    pub new_expiry_ledger: u32,
+}
 
 /// Stable field order for treasury withdrawal event payloads.
 pub const TREASURY_WITHDRAWAL_DATA_FIELDS: [&str; 4] =

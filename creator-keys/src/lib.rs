@@ -2662,6 +2662,20 @@ pub struct PauseState {
 }
 
 /// Single discount tier definition.
+///
+/// # Evaluation Order & Tie Resolution (#549)
+/// Tiers are evaluated in strictly ascending order of minimum volume threshold (`threshold`).
+/// When a creator's cumulative volume qualifies for multiple discount tiers, the last matching
+/// tier wins, applying the lowest fee rate.
+///
+/// ### Worked Example
+/// Given three tiers at 1,000, 5,000, and 10,000 XLM volume:
+/// A creator at 7,000 XLM qualifies for the first two tiers (1,000 and 5,000 XLM) and receives
+/// the tier-2 fee rate (the last matching tier).
+///
+/// ### Invariants
+/// - Tier updates take effect on the next trade and do not apply retroactively.
+/// - Once earned, a tier is retained even if volume theoretically drops below a threshold.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct DiscountTier {
@@ -5006,8 +5020,14 @@ pub(crate) fn extend_creator_ttl(env: &Env, creator: &Address) {
     // Only emit the TTL extension event when the remaining TTL was below the
     // extension threshold before this call. A healthy TTL silently skips the event.
     if needs_event {
-        env.events()
-            .publish(events::ttl_extended_topics(creator), extend_to);
+        env.events().publish(
+            events::ttl_extended_topics(creator),
+            events::TtlExtendedEvent {
+                creator_id: creator.clone(),
+                extended_at_ledger: current_ledger,
+                new_expiry_ledger: extend_to,
+            },
+        );
     }
 }
 
@@ -11984,6 +12004,7 @@ impl CreatorKeysContract {
                 events::ProtocolFeeRecipientUpdatedEvent {
                     old_recipient: old,
                     new_recipient: recipient,
+                    updated_at_ledger: env.ledger().sequence(),
                 },
             );
         }
@@ -12837,6 +12858,7 @@ impl CreatorKeysContract {
             events::ProtocolFeeRecipientUpdatedEvent {
                 old_recipient,
                 new_recipient,
+                updated_at_ledger: env.ledger().sequence(),
             },
         );
 
@@ -19813,6 +19835,26 @@ impl CreatorKeysContract {
 
         Ok(())
     }
+
+    pub fn set_fee_tiers(
+        env: Env,
+        admin: Address,
+        tiers: Vec<FeeTier>,
+    ) -> Result<(), ContractError> {
+        set_fee_tiers(env, admin, tiers)
+    }
+
+    pub fn get_current_fee(env: Env) -> u32 {
+        get_current_fee(env)
+    }
+
+    pub fn apply_trade_volume(env: Env, vol: i128) -> Result<u32, ContractError> {
+        apply_trade_volume(&env, vol)
+    }
+
+    pub fn get_dynamic_fee_view(env: Env) -> DynamicFeeView {
+        get_dynamic_fee_view(env)
+    }
 }
 
 // ============================================================================
@@ -20655,6 +20697,17 @@ pub struct VaultRebalanceSummary {
 // ============================================================================
 
 /// One dynamic fee tier.
+///
+/// # Evaluation Order & Tie Resolution (#549)
+/// Tiers are evaluated in strictly ascending order of `volume_threshold`. When a creator's
+/// volume satisfies multiple tiers, the last matching tier wins so the lowest fee rate is applied.
+///
+/// ### Worked Example
+/// Given three tiers at 1,000, 5,000, and 10,000 XLM volume:
+/// A creator at 7,000 XLM qualifies for the first two tiers (1,000 and 5,000 XLM) and receives
+/// the tier-2 rate (the highest threshold met).
+///
+/// Updates take effect on the next trade (non-retroactive), and earned tiers are retained.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct FeeTier {
@@ -21259,6 +21312,17 @@ pub fn rolling_volume(env: &Env) -> i128 {
     tot
 }
 
+/// Evaluates the active fee tier index based on cumulative/rolling volume (#549).
+///
+/// Tiers are evaluated in ascending order of `volume_threshold`. The loop stops as soon
+/// as a tier's threshold exceeds the volume, ensuring that the **last matching tier wins**.
+///
+/// ### Worked Example
+/// If tiers are configured at 1,000, 5,000, and 10,000 XLM:
+/// A volume of 7,000 XLM qualifies for tiers 0, 1, and 2 (thresholds 0, 1,000, 5,000).
+/// The last matching tier is index 2 (5,000 XLM), so the creator receives the tier-2 rate.
+///
+/// Changes take effect on the next trade (non-retroactive), and earned tiers are retained.
 fn active_tier_index(tiers: &Vec<FeeTier>, vol: i128) -> u32 {
     let mut idx: u32 = 0;
     for (pos, tier) in tiers.iter().enumerate() {

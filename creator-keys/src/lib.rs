@@ -23,6 +23,7 @@ pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
 
+pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
@@ -293,6 +294,13 @@ pub enum ContractError {
     /// `[community_polls::MIN_POLL_OPTIONS, community_polls::MAX_POLL_OPTIONS]`,
     /// an option's text was empty, or a vote's `option_index` was out of range.
     InvalidPollOption = 137,
+    // --- Key-level freeze / unfreeze (Issue #1174) ---
+    /// The key is frozen, so the attempted buy, sell or transfer is rejected.
+    KeyFrozen = 138,
+    /// The key is already frozen; unfreeze it before freezing it again.
+    KeyAlreadyFrozen = 139,
+    /// The key is not frozen, so there is nothing to unfreeze.
+    KeyNotFrozen = 140,
 }
 
 impl ContractError {
@@ -429,6 +437,8 @@ pub enum AllowanceError {
     ZeroAddress = 10,
     /// The sender is still inside the creator's post-buy cooldown window.
     CooldownActive = 11,
+    /// The key is frozen, so the transfer is rejected.
+    KeyFrozen = 12,
 }
 
 /// Errors raised by the sell-tax entrypoints
@@ -6705,6 +6715,7 @@ impl CreatorKeysContract {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
@@ -7280,6 +7291,7 @@ impl CreatorKeysContract {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
@@ -7788,6 +7800,7 @@ impl CreatorKeysContract {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
         assert_position_not_frozen(&env, &creator, &seller)?;
@@ -11280,6 +11293,7 @@ impl CreatorKeysContract {
         for order in orders.iter() {
             let (creator, quantity, max_price) = order;
             emergency_pause::assert_trading_allowed(&env, &creator)?;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
 
             if quantity == 0 {
                 return Err(ContractError::NotPositiveAmount);
@@ -12401,6 +12415,9 @@ impl CreatorKeysContract {
             return Err(ContractError::NotPositiveAmount);
         }
 
+        // A frozen key rejects both swap directions (#1174).
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
+
         // Enforce per-key trade size limits before any price computation so a
         // rejected trade reverts without side effects. When no limit is stored
         // for this key the check is skipped.
@@ -13418,6 +13435,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         from.require_auth();
         assert_not_paused(&env)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_position_not_frozen(&env, &creator, &from)?;
 
         if amount == 0 {
@@ -13569,6 +13587,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         from.require_auth();
         assert_not_paused(&env)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_position_not_frozen(&env, &creator, &from)?;
 
         if transfers.len() > MAX_BATCH_TRANSFER_SIZE {
@@ -16395,6 +16414,7 @@ impl CreatorKeysContract {
         for order in orders.iter() {
             let (creator, quantity) = order;
             emergency_pause::assert_trading_allowed(&env, &creator)?;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
             if quantity == 0 {
                 return Err(ContractError::NotPositiveAmount);
             }
@@ -16542,6 +16562,7 @@ impl CreatorKeysContract {
 
         for order in orders.iter() {
             let (creator, quantity, min_proceeds) = order;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
             if quantity == 0 {
                 return Err(ContractError::NotPositiveAmount);
             }
@@ -16773,6 +16794,7 @@ impl CreatorKeysContract {
         for i in 0..orders.len() {
             let (creator, qty) = orders.get(i).unwrap();
             emergency_pause::assert_trading_allowed(&env, &creator)?;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
             if qty == 0 {
                 return Err(ContractError::NotPositiveAmount);
             }
@@ -17136,6 +17158,8 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &caller)?;
         assert_before_global_deadline(&env)?;
+        // A frozen key rejects the reinvestment buy (#1174).
+        key_freeze::assert_key_not_frozen(&env, &key_id)?;
 
         let claimable = compute_claimable_dividend(&env, &key_id, &caller);
         if claimable <= 0 {
@@ -19086,6 +19110,8 @@ impl CreatorKeysContract {
     ) -> Result<(), AllowanceError> {
         spender.require_auth();
         assert_not_paused(&env).map_err(|_| AllowanceError::ProtocolPaused)?;
+        // A frozen key rejects delegated transfers too (#1174).
+        key_freeze::assert_key_not_frozen(&env, &key_id).map_err(|_| AllowanceError::KeyFrozen)?;
 
         if amount == 0 {
             return Err(AllowanceError::ZeroAmount);

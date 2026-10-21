@@ -1,15 +1,19 @@
 #![no_std]
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
-pub mod quote_view_errors;
-pub mod vesting;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String, Vec,
 };
+pub mod bootstrapping;
+pub mod events;
+pub mod quote_view_errors;
+pub mod vesting;
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 pub mod bundle;
+pub mod community_polls;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
 ///
 /// Declared here as part of Issue #953 — the file existed but had no `mod`
@@ -18,7 +22,7 @@ pub mod bundle;
 pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
-pub mod events;
+
 pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
@@ -292,6 +296,17 @@ pub enum ContractError {
     RetirementPoolInsufficient = 138,
     /// `fund_buyback` was called with a zero or negative amount.
     InvalidFundAmount = 139,
+    // --- Community polls (snapshot-weighted key-holder voting) ---
+    /// No poll with the given id exists.
+    PollNotFound = 134,
+    /// The poll has already closed, or its voting window has elapsed.
+    PollClosed = 135,
+    /// The wallet has already voted on this poll.
+    AlreadyVoted = 136,
+    /// A poll option was invalid: the option list size is outside
+    /// `[community_polls::MIN_POLL_OPTIONS, community_polls::MAX_POLL_OPTIONS]`,
+    /// an option's text was empty, or a vote's `option_index` was out of range.
+    InvalidPollOption = 137,
 }
 
 impl ContractError {
@@ -22772,6 +22787,25 @@ mod test_proxy;
 
 #[cfg(test)]
 mod test_announcements;
+pub fn create_bootstrap(
+    env: Env,
+    admin: Address,
+    key_id: Address,
+    start_price: i128,
+    end_price: i128,
+    duration_seconds: u64,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    bootstrapping::set_bootstrap_config(&env, &key_id, start_price, end_price, duration_seconds);
+    Ok(())
+}
 
+/// Returns current bootstrap price or None if bootstrap period has ended.
+pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
+    bootstrapping::get_bootstrap_price_internal(&env, &key_id)
+}
+
+#[cfg(test)]
+mod test_community_polls;
 #[cfg(test)]
 mod test_issue_1056;

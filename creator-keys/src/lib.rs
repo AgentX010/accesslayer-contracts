@@ -301,6 +301,9 @@ pub enum ContractError {
     KeyAlreadyFrozen = 139,
     /// The key is not frozen, so there is nothing to unfreeze.
     KeyNotFrozen = 140,
+    /// The two sides of an atomic swap deviate in value by more than the
+    /// caller's `max_parity_deviation_bps` tolerance.
+    ParityDeviationExceeded = 138,
 }
 
 impl ContractError {
@@ -11907,6 +11910,14 @@ impl CreatorKeysContract {
         dynamic_fees::current_fee_bps(&env, &key_id)
     }
 
+    /// Read-only view of a key's active fee tier and the volume left to the next tier.
+    pub fn get_active_fee_tier(
+        env: Env,
+        key_id: Address,
+    ) -> Result<dynamic_fees::ActiveFeeTier, ContractError> {
+        dynamic_fees::active_fee_tier(&env, &key_id)
+    }
+
     /// Read-only view of a key's rolling 24-hour gross trade volume.
     pub fn get_key_rolling_volume(env: Env, key_id: Address) -> Result<i128, ContractError> {
         read_registered_creator_profile(&env, &key_id)?;
@@ -12498,6 +12509,91 @@ impl CreatorKeysContract {
                 Ok(order.proceeds)
             }
         }
+    }
+
+    /// Executes an atomic cross-key swap between two wallets.
+    ///
+    /// `wallet_a` gives `qty_a` of `key_a` and receives `qty_b` of `key_b` from
+    /// `wallet_b`, all in one transaction. Both legs are key transfers, so the
+    /// swap reverts as a whole if either leg fails — a partial swap cannot land.
+    ///
+    /// Each side is priced from its live bonding-curve spot price (the next-key
+    /// price at the current supply) before any transfer. Transfers do not move
+    /// supply, so the prices used for the check still hold when the legs execute.
+    /// The swap is rejected with [`ContractError::ParityDeviationExceeded`] when
+    /// the two values deviate by more than `max_parity_deviation_bps` basis
+    /// points of the larger side; a tolerance of `0` requires an exact match.
+    ///
+    /// Both wallets must authorize the call: each leg requires its sending
+    /// wallet's authorization. On success an [`events::AtomicSwapEvent`] is
+    /// emitted carrying both keys, quantities and prices.
+    #[allow(clippy::too_many_arguments)]
+    pub fn atomic_swap(
+        env: Env,
+        key_a: Address,
+        qty_a: u32,
+        wallet_a: Address,
+        key_b: Address,
+        qty_b: u32,
+        wallet_b: Address,
+        max_parity_deviation_bps: u32,
+    ) -> Result<(), ContractError> {
+        if qty_a == 0 || qty_b == 0 {
+            return Err(ContractError::ZeroTransferAmount);
+        }
+        if key_a == key_b {
+            return Err(ContractError::SelfTransfer);
+        }
+
+        let price_a = resolve_quote_inputs(&env, &key_a)?.unwrap_or(0);
+        let price_b = resolve_quote_inputs(&env, &key_b)?.unwrap_or(0);
+        let value_a = price_a
+            .checked_mul(i128::from(qty_a))
+            .ok_or(ContractError::Overflow)?;
+        let value_b = price_b
+            .checked_mul(i128::from(qty_b))
+            .ok_or(ContractError::Overflow)?;
+
+        // |value_a - value_b| / max(value_a, value_b) * 10_000 <= tolerance.
+        // Compared in basis points so a tolerance of 0 only passes on equality.
+        let (higher, lower) = if value_a >= value_b {
+            (value_a, value_b)
+        } else {
+            (value_b, value_a)
+        };
+        if higher > 0 {
+            let deviation_bps = (higher - lower)
+                .checked_mul(10_000)
+                .ok_or(ContractError::Overflow)?
+                / higher;
+            if deviation_bps > i128::from(max_parity_deviation_bps) {
+                return Err(ContractError::ParityDeviationExceeded);
+            }
+        }
+
+        Self::transfer_keys(
+            env.clone(),
+            key_a.clone(),
+            wallet_a.clone(),
+            wallet_b.clone(),
+            qty_a,
+        )?;
+        Self::transfer_keys(env.clone(), key_b.clone(), wallet_b, wallet_a, qty_b)?;
+
+        env.events().publish(
+            events::atomic_swap_topics(&key_a, &key_b),
+            events::AtomicSwapEvent {
+                key_a,
+                qty_a,
+                price_a,
+                key_b,
+                qty_b,
+                price_b,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
     }
 
     /// Deposits `amount` as a dividend for all current key holders of `creator`.
@@ -22670,3 +22766,5 @@ pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
 mod test_community_polls;
 #[cfg(test)]
 mod test_issue_1056;
+#[cfg(test)]
+mod test_issue_1177;

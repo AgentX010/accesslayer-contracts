@@ -44,6 +44,34 @@ pub struct FeeAdjustedEvent {
     pub timestamp: u64,
 }
 
+/// Event name for a key moving between rolling-volume fee tiers.
+pub const KEY_FEE_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("key_tier");
+pub const KEY_FEE_TIER_CHANGED_DATA_FIELDS: [&str; 6] = [
+    "key_id",
+    "new_tier_index",
+    "previous_fee_bps",
+    "new_fee_bps",
+    "rolling_volume",
+    "timestamp",
+];
+
+/// Stable payload emitted alongside [`FeeAdjustedEvent`] when a key's active
+/// fee tier changes, either after a trade or when 24-hour volume has decayed.
+///
+/// Event shape:
+/// - topics: `(KEY_FEE_TIER_CHANGED_EVENT_NAME, key_id)`
+/// - data: `KeyFeeTierChangedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyFeeTierChangedEvent {
+    pub key_id: Address,
+    pub new_tier_index: u32,
+    pub previous_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub rolling_volume: i128,
+    pub timestamp: u64,
+}
+
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
@@ -2810,6 +2838,41 @@ pub struct SwapSlippageExceededEvent {
 /// Shared swap-slippage-exceeded event topics tuple.
 pub fn swap_slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
     (SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for a completed cross-key atomic swap.
+pub const ATOMIC_SWAP_EVENT_NAME: Symbol = symbol_short!("atom_swap");
+
+/// Emitted when two wallets exchange keys of two different creators in one
+/// atomic transaction. The prices are the bonding-curve spot prices used to
+/// value each side, so `qty_a * price_a` and `qty_b * price_b` reconstruct the
+/// values the parity check compared.
+///
+/// Event shape:
+/// - topics: `(ATOMIC_SWAP_EVENT_NAME, key_a, key_b)`
+/// - data: `AtomicSwapEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AtomicSwapEvent {
+    /// First creator key, given by the sender and received by the second wallet.
+    pub key_a: Address,
+    /// Quantity of `key_a` swapped.
+    pub qty_a: u32,
+    /// Bonding-curve spot price of `key_a` used to value the first leg.
+    pub price_a: i128,
+    /// Second creator key, given by the second wallet and received by the sender.
+    pub key_b: Address,
+    /// Quantity of `key_b` swapped.
+    pub qty_b: u32,
+    /// Bonding-curve spot price of `key_b` used to value the second leg.
+    pub price_b: i128,
+    /// Ledger sequence at which the swap settled.
+    pub ledger: u32,
+}
+
+/// Shared atomic-swap event topics tuple.
+pub fn atomic_swap_topics(key_a: &Address, key_b: &Address) -> (Symbol, Address, Address) {
+    (ATOMIC_SWAP_EVENT_NAME, key_a.clone(), key_b.clone())
 }
 
 // --- Max buy quantity per transaction (#828) ---

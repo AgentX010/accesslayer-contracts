@@ -10,8 +10,8 @@ mod contract_test_env;
 
 use contract_test_env::{
     capture_snapshot, register_creator_keys, register_test_creator, set_curve_slope,
-    set_key_price_for_tests, set_protocol_fee_bps, test_env_with_auths,
-    DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
+    set_key_price_for_tests, set_protocol_fee_bps, test_env_with_auths, DEFAULT_CREATOR_BPS,
+    DEFAULT_PROTOCOL_BPS,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
 

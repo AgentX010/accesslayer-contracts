@@ -19685,6 +19685,26 @@ impl CreatorKeysContract {
 
         Ok(())
     }
+
+    pub fn set_fee_tiers(
+        env: Env,
+        admin: Address,
+        tiers: Vec<FeeTier>,
+    ) -> Result<(), ContractError> {
+        set_fee_tiers(env, admin, tiers)
+    }
+
+    pub fn get_current_fee(env: Env) -> u32 {
+        get_current_fee(env)
+    }
+
+    pub fn apply_trade_volume(env: Env, vol: i128) -> Result<u32, ContractError> {
+        apply_trade_volume(&env, vol)
+    }
+
+    pub fn get_dynamic_fee_view(env: Env) -> DynamicFeeView {
+        get_dynamic_fee_view(env)
+    }
 }
 
 // ============================================================================

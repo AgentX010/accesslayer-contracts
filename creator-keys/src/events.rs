@@ -44,6 +44,34 @@ pub struct FeeAdjustedEvent {
     pub timestamp: u64,
 }
 
+/// Event name for a key moving between rolling-volume fee tiers.
+pub const KEY_FEE_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("key_tier");
+pub const KEY_FEE_TIER_CHANGED_DATA_FIELDS: [&str; 6] = [
+    "key_id",
+    "new_tier_index",
+    "previous_fee_bps",
+    "new_fee_bps",
+    "rolling_volume",
+    "timestamp",
+];
+
+/// Stable payload emitted alongside [`FeeAdjustedEvent`] when a key's active
+/// fee tier changes, either after a trade or when 24-hour volume has decayed.
+///
+/// Event shape:
+/// - topics: `(KEY_FEE_TIER_CHANGED_EVENT_NAME, key_id)`
+/// - data: `KeyFeeTierChangedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyFeeTierChangedEvent {
+    pub key_id: Address,
+    pub new_tier_index: u32,
+    pub previous_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub rolling_volume: i128,
+    pub timestamp: u64,
+}
+
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:

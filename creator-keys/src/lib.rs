@@ -11893,6 +11893,14 @@ impl CreatorKeysContract {
         dynamic_fees::current_fee_bps(&env, &key_id)
     }
 
+    /// Read-only view of a key's active fee tier and the volume left to the next tier.
+    pub fn get_active_fee_tier(
+        env: Env,
+        key_id: Address,
+    ) -> Result<dynamic_fees::ActiveFeeTier, ContractError> {
+        dynamic_fees::active_fee_tier(&env, &key_id)
+    }
+
     /// Read-only view of a key's rolling 24-hour gross trade volume.
     pub fn get_key_rolling_volume(env: Env, key_id: Address) -> Result<i128, ContractError> {
         read_registered_creator_profile(&env, &key_id)?;
@@ -22644,3 +22652,5 @@ pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
 mod test_community_polls;
 #[cfg(test)]
 mod test_issue_1056;
+#[cfg(test)]
+mod test_issue_1177;

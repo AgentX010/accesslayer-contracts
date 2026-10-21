@@ -986,6 +986,13 @@ pub mod constants {
             DataKey::WhitelistPermanentlyDisabled(key_id.clone())
         }
 
+        /// Storage key for the per-key trade size limits (`max_buy` / `max_sell`)
+        /// enforced inside `swap` (Issue #1100). A stored `TradeLimit` with a
+        /// `0` field means that direction has no limit.
+        pub fn trade_limit(key_id: &Address) -> DataKey {
+            DataKey::TradeLimit(key_id.clone())
+        }
+
         pub fn vesting_claimed(creator: &Address, beneficiary: &Address) -> DataKey {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
@@ -1693,6 +1700,12 @@ pub const MAX_TRADE_COOLDOWN_SECS: u64 = 86_400;
 /// Maximum allowed per-transaction buy quantity limit.
 pub const MAX_BUY_QUANTITY_LIMIT: u32 = 10_000;
 
+/// Maximum allowed per-transaction trade size limit.
+///
+/// A value of `0` disables the limit (no per-tx cap), matching the semantics
+/// of [`MAX_BUY_QUANTITY_LIMIT`].
+pub const MAX_TRADE_LIMIT: u32 = 10_000;
+
 /// Maximum number of keys a pre-launch auction can allocate at the fixed
 /// auction price before the bonding curve takes over.
 pub const MAX_AUCTION_SUPPLY: u32 = 10_000;
@@ -2174,6 +2187,23 @@ pub enum DataKey {
     KeyMilestones(Address),
     /// Investor lock-up expiry timestamp, keyed by `(wallet, key_id)`.
     InvestorLockup(Address, Address),
+    /// Per-key trade size limits (`max_buy` / `max_sell`) set by the protocol
+    /// admin via `set_trade_limit` (Issue #1100). A value of `0` for either
+    /// field means no limit is configured for that direction.
+    TradeLimit(Address),
+}
+
+/// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
+///
+/// A value of `0` for `max_buy` or `max_sell` means no limit is configured for
+/// that direction, so any swap amount is accepted for that direction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeLimit {
+    /// Maximum buy quantity per single swap for this key.
+    pub max_buy: u32,
+    /// Maximum sell quantity per single swap for this key.
+    pub max_sell: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2972,6 +3002,29 @@ pub fn read_registered_creator_profile(
     creator: &Address,
 ) -> Result<CreatorProfile, ContractError> {
     read_creator_profile(env, creator).ok_or(ContractError::NotRegistered)
+}
+
+/// Reads the per-key trade size limits stored for `key_id`.
+///
+/// Returns `None` when no limit has been configured, meaning swaps for that key
+/// are not quantity-limited.
+pub fn read_trade_limit(env: &Env, key_id: &Address) -> Option<TradeLimit> {
+    env.storage()
+        .persistent()
+        .get::<DataKey, TradeLimit>(&constants::storage::trade_limit(key_id))
+}
+
+/// Maps a [`TradeLimitError`] onto the primary [`ContractError`] surface so the
+/// per-key trade-limit flow can return through `swap`'s `Result<i128,
+/// ContractError>` signature while keeping its own dedicated error enum.
+impl From<TradeLimitError> for ContractError {
+    fn from(e: TradeLimitError) -> Self {
+        match e {
+            TradeLimitError::TradeLimitExceeded => ContractError::QuantityExceedsLimit,
+            TradeLimitError::LimitTooHigh => ContractError::LimitTooHigh,
+            TradeLimitError::Unauthorized => ContractError::Unauthorized,
+        }
+    }
 }
 
 /// Returns the creator's archive lifecycle state, defaulting to
@@ -6178,6 +6231,30 @@ pub enum SwapError {
     ProtocolPaused = 5,
     /// Swap amount is zero.
     ZeroAmount = 6,
+}
+
+/// Errors raised by the per-key trade size limit entrypoints
+/// ([`CreatorKeysContract::set_trade_limit`],
+/// [`CreatorKeysContract::get_trade_limits`], and the limit check inside
+/// [`CreatorKeysContract::swap`]).
+///
+/// Kept separate from [`ContractError`] because that enum is already at the
+/// Soroban 50-variant cap. Because `#[contracterror]` only supports unit
+/// variants (no data fields), the attempted and permitted amounts for a
+/// rejected trade are published in the accompanying
+/// [`events::TRADE_LIMIT_EXCEEDED_EVENT_NAME`] event rather than carried on
+/// the error itself.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum TradeLimitError {
+    /// The swap amount exceeded the configured per-key buy or sell limit.
+    TradeLimitExceeded = 1,
+    /// The requested trade limit is above the allowed ceiling
+    /// ([`MAX_TRADE_LIMIT`]).
+    LimitTooHigh = 2,
+    /// The caller is not the protocol admin.
+    Unauthorized = 3,
 }
 
 #[contract]
@@ -12303,6 +12380,29 @@ impl CreatorKeysContract {
             return Err(ContractError::NotPositiveAmount);
         }
 
+        // Enforce per-key trade size limits before any price computation so a
+        // rejected trade reverts without side effects. When no limit is stored
+        // for this key the check is skipped.
+        if let Some(limit) = read_trade_limit(&env, &creator) {
+            let max = match direction {
+                SwapDirection::Buy => limit.max_buy,
+                SwapDirection::Sell => limit.max_sell,
+            };
+            if max != 0 && amount > max {
+                env.events().publish(
+                    events::trade_limit_exceeded_topics(&creator),
+                    events::TradeLimitExceededEvent {
+                        key_id: creator.clone(),
+                        direction,
+                        attempted: amount,
+                        max,
+                        ledger: env.ledger().sequence(),
+                    },
+                );
+                return Err(TradeLimitError::TradeLimitExceeded.into());
+            }
+        }
+
         // Record the pre-swap price and compute the post-swap price before any
         // state is committed, so a breach reverts without side effects.
         let (_, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
@@ -12741,6 +12841,56 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    /// Sets the per-key trade size limits enforced inside `swap`.
+    ///
+    /// Only callable by the protocol admin. `max_buy` and `max_sell` must each
+    /// be in `0..=MAX_TRADE_LIMIT`; a value of `0` disables the limit for that
+    /// direction. Replaces any previously stored limits for the key.
+    ///
+    /// Parameter validation:
+    /// - `admin`: must authorize the call (`require_auth`).
+    /// - `admin`: must be the current protocol admin, otherwise
+    ///   [`ContractError::Unauthorized`].
+    /// - `max_buy` / `max_sell`: must not exceed [`MAX_TRADE_LIMIT`], otherwise
+    ///   [`TradeLimitError::LimitTooHigh`].
+    pub fn set_trade_limit(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        max_buy: u32,
+        max_sell: u32,
+    ) -> Result<(), TradeLimitError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin).map_err(|_| TradeLimitError::Unauthorized)?;
+        if max_buy > MAX_TRADE_LIMIT || max_sell > MAX_TRADE_LIMIT {
+            return Err(TradeLimitError::LimitTooHigh);
+        }
+        let limit = TradeLimit { max_buy, max_sell };
+        let key = constants::storage::trade_limit(&key_id);
+        env.storage().persistent().set(&key, &limit);
+        extend_key_ttl_to_full_window(&env, &key);
+        env.events().publish(
+            events::trade_limit_updated_topics(&key_id),
+            events::TradeLimitUpdatedEvent {
+                key_id: key_id.clone(),
+                max_buy,
+                max_sell,
+                ledger: env.ledger().sequence(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Read-only view: returns the per-key trade size limits for `key_id`.
+    ///
+    /// Returns `None` when no limit has been configured, meaning swaps for that
+    /// key are not quantity-limited.
+    pub fn get_trade_limits(env: Env, key_id: Address) -> Option<TradeLimit> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::trade_limit(&key_id))
     }
 
     /// Updates the creator fee recipient address.

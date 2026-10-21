@@ -2840,6 +2840,26 @@ pub fn swap_slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
     (SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for a trade rejected by its slippage tolerance check (#1172).
+pub const SLIPPAGE_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("slip_ex");
+
+/// Emitted when trade execution breaches the caller's slippage tolerance (#1172).
+/// Includes the quoted price, executed price, and slippage in basis points.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SlippageExceeded {
+    pub quoted_price: i128,
+    pub executed_price: i128,
+    pub slippage_bps: u32,
+}
+
+pub type SlippageExceededEvent = SlippageExceeded;
+
+/// Shared slippage-exceeded event topics tuple.
+pub fn slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
+    (SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
+}
+
 /// Event name for a completed cross-key atomic swap.
 pub const ATOMIC_SWAP_EVENT_NAME: Symbol = symbol_short!("atom_swap");
 

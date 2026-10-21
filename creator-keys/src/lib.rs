@@ -294,16 +294,16 @@ pub enum ContractError {
     /// `[community_polls::MIN_POLL_OPTIONS, community_polls::MAX_POLL_OPTIONS]`,
     /// an option's text was empty, or a vote's `option_index` was out of range.
     InvalidPollOption = 137,
-    // --- Key-level freeze / unfreeze (Issue #1174) ---
-    /// The key is frozen, so the attempted buy, sell or transfer is rejected.
-    KeyFrozen = 138,
-    /// The key is already frozen; unfreeze it before freezing it again.
-    KeyAlreadyFrozen = 139,
-    /// The key is not frozen, so there is nothing to unfreeze.
-    KeyNotFrozen = 140,
     /// The two sides of an atomic swap deviate in value by more than the
     /// caller's `max_parity_deviation_bps` tolerance.
     ParityDeviationExceeded = 138,
+    // --- Key-level freeze / unfreeze (Issue #1174) ---
+    /// The key is frozen, so the attempted buy, sell or transfer is rejected.
+    KeyFrozen = 139,
+    /// The key is already frozen; unfreeze it before freezing it again.
+    KeyAlreadyFrozen = 140,
+    /// The key is not frozen, so there is nothing to unfreeze.
+    KeyNotFrozen = 141,
 }
 
 impl ContractError {

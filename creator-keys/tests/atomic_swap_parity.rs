@@ -50,11 +50,9 @@ fn atomic_swap_moves_both_legs_when_values_match() {
     f.client
         .atomic_swap(&f.key_a, &2, &f.wallet_a, &f.key_b, &2, &f.wallet_b, &0);
 
-    assert_eq!(f.client.get_key_balance(&f.key_a, &f.wallet_a), 0);
-    assert_eq!(f.client.get_key_balance(&f.key_b, &f.wallet_a), 2);
-    assert_eq!(f.client.get_key_balance(&f.key_b, &f.wallet_b), 0);
-    assert_eq!(f.client.get_key_balance(&f.key_a, &f.wallet_b), 2);
-
+    // Checked before the balance reads below: the test host clears its event
+    // buffer at the start of every invocation, so the swap's event is only
+    // observable while it is still the most recent call.
     assert_event(
         &env,
         &f.contract_id,
@@ -69,6 +67,11 @@ fn atomic_swap_moves_both_legs_when_values_match() {
             ledger: env.ledger().sequence(),
         },
     );
+
+    assert_eq!(f.client.get_key_balance(&f.key_a, &f.wallet_a), 0);
+    assert_eq!(f.client.get_key_balance(&f.key_b, &f.wallet_a), 2);
+    assert_eq!(f.client.get_key_balance(&f.key_b, &f.wallet_b), 0);
+    assert_eq!(f.client.get_key_balance(&f.key_a, &f.wallet_b), 2);
 }
 
 #[test]

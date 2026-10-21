@@ -15,7 +15,7 @@ use contract_test_env::{
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 const BASE_PRICE: i128 = 100_000_000; // 10 XLM in stroops
-const SLOPE: i128 = 5_000_000;         // 0.5 XLM per supply step
+const SLOPE: i128 = 5_000_000; // 0.5 XLM per supply step
 
 #[test]
 fn test_query_price_at_supply_zero() {

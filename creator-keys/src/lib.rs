@@ -12384,9 +12384,9 @@ impl CreatorKeysContract {
         // rejected trade reverts without side effects. When no limit is stored
         // for this key the check is skipped.
         if let Some(limit) = read_trade_limit(&env, &creator) {
-            let (max, direction_label) = match direction {
-                SwapDirection::Buy => (limit.max_buy, "buy"),
-                SwapDirection::Sell => (limit.max_sell, "sell"),
+            let max = match direction {
+                SwapDirection::Buy => limit.max_buy,
+                SwapDirection::Sell => limit.max_sell,
             };
             if max != 0 && amount > max {
                 env.events().publish(
@@ -12841,6 +12841,56 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    /// Sets the per-key trade size limits enforced inside `swap`.
+    ///
+    /// Only callable by the protocol admin. `max_buy` and `max_sell` must each
+    /// be in `0..=MAX_TRADE_LIMIT`; a value of `0` disables the limit for that
+    /// direction. Replaces any previously stored limits for the key.
+    ///
+    /// Parameter validation:
+    /// - `admin`: must authorize the call (`require_auth`).
+    /// - `admin`: must be the current protocol admin, otherwise
+    ///   [`ContractError::Unauthorized`].
+    /// - `max_buy` / `max_sell`: must not exceed [`MAX_TRADE_LIMIT`], otherwise
+    ///   [`TradeLimitError::LimitTooHigh`].
+    pub fn set_trade_limit(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        max_buy: u32,
+        max_sell: u32,
+    ) -> Result<(), TradeLimitError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin).map_err(|_| TradeLimitError::Unauthorized)?;
+        if max_buy > MAX_TRADE_LIMIT || max_sell > MAX_TRADE_LIMIT {
+            return Err(TradeLimitError::LimitTooHigh);
+        }
+        let limit = TradeLimit { max_buy, max_sell };
+        let key = constants::storage::trade_limit(&key_id);
+        env.storage().persistent().set(&key, &limit);
+        extend_key_ttl_to_full_window(&env, &key);
+        env.events().publish(
+            events::trade_limit_updated_topics(&key_id),
+            events::TradeLimitUpdatedEvent {
+                key_id: key_id.clone(),
+                max_buy,
+                max_sell,
+                ledger: env.ledger().sequence(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Read-only view: returns the per-key trade size limits for `key_id`.
+    ///
+    /// Returns `None` when no limit has been configured, meaning swaps for that
+    /// key are not quantity-limited.
+    pub fn get_trade_limits(env: Env, key_id: Address) -> Option<TradeLimit> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::trade_limit(&key_id))
     }
 
     /// Updates the creator fee recipient address.

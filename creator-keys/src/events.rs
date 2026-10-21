@@ -9,7 +9,7 @@
 use crate::{
     constants, extend_key_ttl_to_full_window, read_creator_supply, read_registered_creator_profile,
     CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, SwapDirection,
-    TradeLimit, VaultAllocation,
+    VaultAllocation,
 };
 use soroban_sdk::{
     contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String, Symbol,
@@ -2809,6 +2809,68 @@ pub struct MaxBuyQuantityUpdatedEvent {
 /// Shared max-buy-quantity-updated event topics tuple.
 pub fn max_buy_quantity_updated_topics(creator: &Address) -> (Symbol, Address) {
     (MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator.clone())
+}
+
+// --- Per-key trade size limits (Issue #1100) ---
+
+/// Event name emitted when the admin updates a key's trade size limits.
+pub const TRADE_LIMIT_UPDATED_EVENT_NAME: Symbol = symbol_short!("tl_upd");
+
+/// Stable trade-limit-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TRADE_LIMIT_UPDATED_EVENT_NAME, key_id)`
+/// - data: `TradeLimitUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeLimitUpdatedEvent {
+    /// Address of the key whose trade limits were changed.
+    pub key_id: Address,
+    /// New per-swap buy quantity limit (`0` = no limit).
+    pub max_buy: u32,
+    /// New per-swap sell quantity limit (`0` = no limit).
+    pub max_sell: u32,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared trade-limit-updated event topics tuple.
+pub fn trade_limit_updated_topics(key_id: &Address) -> (Symbol, Address) {
+    (TRADE_LIMIT_UPDATED_EVENT_NAME, key_id.clone())
+}
+
+/// Event name emitted when a swap is rejected for exceeding a configured
+/// per-key trade size limit.
+pub const TRADE_LIMIT_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("tl_exc");
+
+/// Stable trade-limit-exceeded event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TRADE_LIMIT_EXCEEDED_EVENT_NAME, key_id)`
+/// - data: `TradeLimitExceededEvent`
+///
+/// Carries the attempted and permitted amounts plus the direction so indexers
+/// can distinguish a buy rejection from a sell rejection without consulting
+/// the (dataless) [`crate::TradeLimitError::TradeLimitExceeded`] error code.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeLimitExceededEvent {
+    /// Address of the key whose limit was breached.
+    pub key_id: Address,
+    /// Direction of the rejected swap.
+    pub direction: SwapDirection,
+    /// Quantity the caller attempted to swap.
+    pub attempted: u32,
+    /// Configured limit for that direction (`0` would mean no limit, but a
+    /// `0` limit never triggers this event).
+    pub max: u32,
+    /// Ledger sequence at the time of the rejection.
+    pub ledger: u32,
+}
+
+/// Shared trade-limit-exceeded event topics tuple.
+pub fn trade_limit_exceeded_topics(key_id: &Address) -> (Symbol, Address) {
+    (TRADE_LIMIT_EXCEEDED_EVENT_NAME, key_id.clone())
 }
 
 // --- Batch transfer keys (#799) ---

@@ -40,7 +40,8 @@
 
 use crate::{
     constants, extend_key_ttl_to_full_window, read_creator_supply, read_registered_creator_profile,
-    CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, VaultAllocation,
+    CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, SwapDirection,
+    TradeLimit, VaultAllocation,
 };
 use soroban_sdk::{
     contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String, Symbol,

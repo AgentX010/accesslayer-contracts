@@ -322,6 +322,9 @@ try {
 ### Trading & Slippage
 - `InsufficientPayment` (4) applies to buys when payment is less than total price + fees.
 - `InsufficientBalance` (9) applies to sells, transfers, and buybacks when caller balance is insufficient.
+  Both `batch_sell` and `batch_sell_v2` report (9) when an order asks for more keys than the caller
+  holds — including when the excess only appears by summing several orders for the same creator —
+  and the whole call is rolled back. `SellUnderflow` (10) stays reserved for arithmetic underflow.
 - `SlippageExceeded` (16) indicates market movement between quote generation and execution. Refresh quotes and retry with wider slippage bounds.
 
 ### Governance Polls

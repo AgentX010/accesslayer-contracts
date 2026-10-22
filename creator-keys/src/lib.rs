@@ -19740,6 +19740,11 @@ impl CreatorKeysContract {
         lp_reward::get_lp_position(&env, lp_id)
     }
 
+    /// Returns pending rewards for a given LP position.
+    pub fn get_lp_rewards(env: Env, lp_id: u64) -> Result<i128, lp_reward::LpRewardError> {
+        lp_reward::get_lp_rewards(&env, lp_id)
+    }
+
     /// Accrues fee rewards to key pair pool proportional to trading volume.
     pub fn accrue_lp_trading_fee(
         env: Env,

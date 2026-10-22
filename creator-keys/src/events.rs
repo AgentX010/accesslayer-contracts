@@ -4807,3 +4807,96 @@ pub struct BootstrapEndedEvent {
 pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
     (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
 }
+
+// ============================================================================
+// Key deprecation flow
+// ============================================================================
+
+/// Event name emitted when a creator initiates key deprecation.
+pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_depr");
+
+/// Event name emitted when a holder exits a deprecating key at the floor price.
+pub const KEY_EXITED_EVENT_NAME: Symbol = symbol_short!("key_exit");
+
+/// Event name emitted when a deprecation window closes and the key is finalized.
+pub const KEY_DEPRECATION_FINALIZED_EVENT_NAME: Symbol = symbol_short!("key_finl");
+
+/// Stable field order for [`KeyDeprecatedEvent`].
+pub const KEY_DEPRECATED_DATA_FIELDS: [&str; 4] =
+    ["key_id", "floor_price", "window_expiry", "ledger"];
+
+/// Stable field order for [`KeyExitedEvent`].
+pub const KEY_EXITED_DATA_FIELDS: [&str; 5] =
+    ["key_id", "holder", "quantity", "payout", "ledger"];
+
+/// Stable field order for [`KeyDeprecationFinalizedEvent`].
+pub const KEY_DEPRECATION_FINALIZED_DATA_FIELDS: [&str; 3] = ["key_id", "floor_price", "ledger"];
+
+/// Stable key-deprecated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEY_DEPRECATED_EVENT_NAME, key_id)`
+/// - data: `KeyDeprecatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyDeprecatedEvent {
+    /// Creator key that entered deprecation.
+    pub key_id: Address,
+    /// Immutable floor price locked in at deprecation initiation.
+    pub floor_price: i128,
+    /// Ledger timestamp at which the migration window closes.
+    pub window_expiry: u64,
+    /// Ledger sequence number at the time of deprecation.
+    pub ledger: u32,
+}
+
+/// Stable key-exited event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEY_EXITED_EVENT_NAME, key_id, holder)`
+/// - data: `KeyExitedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyExitedEvent {
+    /// Creator key being exited.
+    pub key_id: Address,
+    /// Holder that exited during the migration window.
+    pub holder: Address,
+    /// Number of keys sold back at the floor price.
+    pub quantity: u32,
+    /// Total payout delivered to the holder.
+    pub payout: i128,
+    /// Ledger sequence number at the time of exit.
+    pub ledger: u32,
+}
+
+/// Stable key-deprecation-finalized event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEY_DEPRECATION_FINALIZED_EVENT_NAME, key_id)`
+/// - data: `KeyDeprecationFinalizedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyDeprecationFinalizedEvent {
+    /// Creator key that was permanently halted.
+    pub key_id: Address,
+    /// Floor price that was locked in at deprecation initiation.
+    pub floor_price: i128,
+    /// Ledger sequence number at the time of finalization.
+    pub ledger: u32,
+}
+
+/// Shared key-deprecated event topics tuple.
+pub fn key_deprecated_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_DEPRECATED_EVENT_NAME, key_id.clone())
+}
+
+/// Shared key-exited event topics tuple.
+pub fn key_exited_topics(key_id: &Address, holder: &Address) -> (Symbol, Address, Address) {
+    (KEY_EXITED_EVENT_NAME, key_id.clone(), holder.clone())
+}
+
+/// Shared key-deprecation-finalized event topics tuple.
+pub fn key_deprecation_finalized_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_DEPRECATION_FINALIZED_EVENT_NAME, key_id.clone())
+}

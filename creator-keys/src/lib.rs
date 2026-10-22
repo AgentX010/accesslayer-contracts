@@ -16656,6 +16656,20 @@ impl CreatorKeysContract {
             let mut order_proceeds: i128 = 0;
             let mut i = 0u32;
             while i < quantity {
+                // Check the seller's balance before touching supply. A holder
+                // asking for more keys than they own is a user error and must
+                // report `InsufficientBalance` exactly like `batch_sell()`;
+                // decrementing supply first made a zeroed supply reach
+                // `checked_sub(1)` and surface the internal `SellUnderflow`
+                // instead. `SellUnderflow` therefore stays reserved for a
+                // genuinely inconsistent state (balance held, supply already 0).
+                let balance_key = constants::storage::holder_balance_key(&creator, &seller);
+                let current_balance: u32 =
+                    env.storage().persistent().get(&balance_key).unwrap_or(0);
+                if current_balance == 0 {
+                    return Err(ContractError::InsufficientBalance);
+                }
+
                 let sell_supply = profile
                     .supply
                     .checked_sub(1)
@@ -16663,13 +16677,6 @@ impl CreatorKeysContract {
                 let curve_price =
                     compute_bonding_curve_price(&env, &creator, base_price, sell_supply)?;
                 let price = apply_spread(&env, &creator, curve_price)?;
-
-                let balance_key = constants::storage::holder_balance_key(&creator, &seller);
-                let current_balance: u32 =
-                    env.storage().persistent().get(&balance_key).unwrap_or(0);
-                if current_balance == 0 {
-                    return Err(ContractError::InsufficientBalance);
-                }
 
                 let staked_balance_key = constants::storage::staked_balance(&creator, &seller);
                 let staked_balance: u32 = env

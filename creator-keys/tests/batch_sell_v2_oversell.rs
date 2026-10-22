@@ -60,7 +60,12 @@ fn holder_of_two(
     (creator, seller)
 }
 
-fn assert_state_untouched(env: &soroban_sdk::Env, client: &CreatorKeysContractClient<'_>, creator: &Address, seller: &Address) {
+fn assert_state_untouched(
+    env: &soroban_sdk::Env,
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    seller: &Address,
+) {
     assert_eq!(
         client.get_key_balance(creator, seller),
         2,
@@ -124,7 +129,10 @@ fn test_batch_sell_v2_rejects_split_orders_exceeding_balance() {
 
     let orders = Vec::from_array(
         &env,
-        [(creator.clone(), 2u32, None::<i128>), (creator.clone(), 1u32, None::<i128>)],
+        [
+            (creator.clone(), 2u32, None::<i128>),
+            (creator.clone(), 1u32, None::<i128>),
+        ],
     );
     let result = client.try_batch_sell_v2(&seller, &orders);
 

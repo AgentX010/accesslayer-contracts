@@ -4902,6 +4902,8 @@ pub struct RetirementExecutedEvent {
 /// Shared retirement-executed event topics tuple.
 pub fn retirement_executed_topics(key_id: &Address) -> (Symbol, Address) {
     (RETIREMENT_EXECUTED_EVENT_NAME, key_id.clone())
+}
+
 // --- Key-level freeze / unfreeze (#1174) ---
 
 /// Event name emitted when a key is frozen by its multi-sig admins.

@@ -286,18 +286,18 @@ pub enum ContractError {
     NotAHolder = 133,
     // --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
     /// No retirement proposal has been made for the supplied key.
-    NoRetirementProposed = 134,
+    NoRetirementProposed = 142,
     /// A retirement proposal already exists for the supplied key.
-    RetirementAlreadyProposed = 135,
+    RetirementAlreadyProposed = 143,
     /// `execute_retirement` was called before the 7-day notice window elapsed.
-    RetirementWindowActive = 136,
+    RetirementWindowActive = 144,
     /// The retirement has already been executed.
-    RetirementAlreadyExecuted = 137,
+    RetirementAlreadyExecuted = 145,
     /// The admin-funded buyback pool does not hold enough XLM to cover
     /// `total_supply * buyback_price`.
-    RetirementPoolInsufficient = 138,
+    RetirementPoolInsufficient = 146,
     /// `fund_buyback` was called with a zero or negative amount.
-    InvalidFundAmount = 139,
+    InvalidFundAmount = 147,
     // --- Community polls (snapshot-weighted key-holder voting) ---
     /// No poll with the given id exists.
     PollNotFound = 134,

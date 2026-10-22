@@ -4807,3 +4807,59 @@ pub struct BootstrapEndedEvent {
 pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
     (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
 }
+
+// --- Key-level freeze / unfreeze (#1174) ---
+
+/// Event name emitted when a key is frozen by its multi-sig admins.
+pub const KEY_FROZEN_EVENT_NAME: Symbol = symbol_short!("key_frz");
+
+/// Event name emitted when a key's freeze is lifted by its multi-sig admins.
+pub const KEY_UNFROZEN_EVENT_NAME: Symbol = symbol_short!("key_unfrz");
+
+/// Stable payload for a key freeze event.
+///
+/// Event shape:
+/// - topics: `(KEY_FROZEN_EVENT_NAME, key_id)`
+/// - data: `KeyFrozenEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyFrozenEvent {
+    /// Address of the frozen key.
+    pub key_id: Address,
+    /// The admin that authorized the freeze.
+    pub admin_wallet: Address,
+    /// Reason supplied by the admin.
+    pub reason: String,
+    /// Ledger timestamp of the freeze, in seconds.
+    pub timestamp: u64,
+    /// Ledger sequence at the time of the freeze.
+    pub ledger: u32,
+}
+
+/// Stable payload for a key unfreeze event.
+///
+/// Event shape:
+/// - topics: `(KEY_UNFROZEN_EVENT_NAME, key_id)`
+/// - data: `KeyUnfrozenEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyUnfrozenEvent {
+    /// Address of the released key.
+    pub key_id: Address,
+    /// The admin that authorized the release.
+    pub admin_wallet: Address,
+    /// Ledger timestamp of the release, in seconds.
+    pub timestamp: u64,
+    /// Ledger sequence at the time of the release.
+    pub ledger: u32,
+}
+
+/// Shared key-frozen event topics tuple.
+pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_FROZEN_EVENT_NAME, key_id.clone())
+}
+
+/// Shared key-unfrozen event topics tuple.
+pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
+}

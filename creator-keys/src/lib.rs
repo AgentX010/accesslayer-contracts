@@ -9,6 +9,7 @@ use soroban_sdk::{
 };
 pub mod bootstrapping;
 pub mod events;
+pub use events::{SlippageExceeded, SlippageExceededEvent};
 pub mod quote_view_errors;
 pub mod vesting;
 
@@ -4464,6 +4465,20 @@ fn assert_max_slippage_bps(
                     (soroban_sdk::symbol_short!("imp_ex"), creator.clone()),
                     (actual_bps, max_bps),
                 );
+                let payload = events::SlippageExceeded {
+                    quoted_price: reference_price,
+                    executed_price: execution_price_after_fees,
+                    slippage_bps: actual_bps,
+                };
+                env.events()
+                    .publish(events::slippage_exceeded_topics(creator), payload.clone());
+                env.events().publish(
+                    (
+                        soroban_sdk::Symbol::new(env, "SlippageExceeded"),
+                        creator.clone(),
+                    ),
+                    payload,
+                );
                 return Err(ContractError::SlippageExceeded);
             }
         }
@@ -6647,6 +6662,29 @@ impl CreatorKeysContract {
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
         Self::buy_key_with_slippage(env, key_id, buyer, payment, max_price, max_slippage_bps)
+    }
+
+    /// Sells a key for `key_id`.
+    /// Alias to [`Self::sell_key`].
+    pub fn sell(
+        env: Env,
+        key_id: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+    ) -> Result<u32, ContractError> {
+        Self::sell_key(env, key_id, seller, min_proceeds)
+    }
+
+    /// Sells a key for `key_id` with caller-specified slippage tolerance.
+    /// Alias to [`Self::sell_key_with_slippage`].
+    pub fn sell_with_slippage(
+        env: Env,
+        key_id: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
+        Self::sell_key_with_slippage(env, key_id, seller, min_proceeds, max_slippage_bps)
     }
 
     pub fn buy_key(
@@ -22871,5 +22909,7 @@ pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
 mod test_community_polls;
 #[cfg(test)]
 mod test_issue_1056;
+#[cfg(test)]
+mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;

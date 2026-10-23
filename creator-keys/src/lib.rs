@@ -291,8 +291,6 @@ pub enum ContractError {
     StateRestoring = 113,
     /// The creator is not in the lifecycle state the archive operation requires (#709).
     InvalidLifecycleState = 114,
-    /// Trading for the creator key is suspended by its circuit breaker.
-    CircuitBreakerActive = 115,
     /// The requested announcement page exceeds the supported maximum size.
     AnnouncementPageSizeExceeded = 115,
     /// An announcement index points to a record that is no longer available.
@@ -358,6 +356,8 @@ pub enum ContractError {
     KeyAlreadyFrozen = 140,
     /// The key is not frozen, so there is nothing to unfreeze.
     KeyNotFrozen = 141,
+    /// Trading for the creator key is suspended by its circuit breaker.
+    CircuitBreakerActive = 142,
 }
 
 impl ContractError {
@@ -12010,6 +12010,8 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&DataKey::CircuitBreakerAddress)
+    }
+
     /// Replaces ordered rolling-volume fee brackets. Accumulated volume is preserved.
     pub fn set_volume_brackets(
         env: Env,
@@ -12551,6 +12553,9 @@ impl CreatorKeysContract {
         if let Some(address) = breaker.as_ref() {
             if CircuitBreakerClient::new(&env, address).is_suspended(&creator) {
                 return Err(ContractError::CircuitBreakerActive);
+            }
+        }
+
         // A frozen key rejects both swap directions (#1174).
         key_freeze::assert_key_not_frozen(&env, &creator)?;
 
